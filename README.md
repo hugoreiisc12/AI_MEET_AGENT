@@ -307,6 +307,7 @@ pip install --upgrade langchain langchain-openai
 - **Dependency Injection**: Container gerencia dependências
 - **Type Hints**: Tipagem forte em todo código
 - **Docstrings**: Documentação em português
+- **Comentários Inline**: Todos os arquivos Python são comentados descrevendo classes, métodos e campos de forma concisa, seguindo o padrão estabelecido em [config/settings.py](config/settings.py)
 
 ## 🤝 Contribuindo
 

@@ -1,110 +1,77 @@
-# Repositório de reuniões usando arquivos de JSON para persistência simples 
-# e sem dependências externas, ideal para prototipagem
+# Repositório JSON para persistência local de reuniões em modo solo
 import json
 import os
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-from entities.metting import Meeting, Summary, Task, Decision  # CORRIGIDO: domain.entities → entities
+from entities.metting import Meeting, Summary, Task, Decision
 from config.settings import get_settings
 
 
-# Defindo classe de repositório que persiste reuniões como arquivos JSON individuais em disco
-# (Removida herança de IMeetingRepository para evitar import circular e facilitar testes)
-class JsonMeetingRepository:  # CORRIGIDO: Removida herança de IMeetingRepository (não definido)
-    """
-    Persiste reuniões como arquivos JSON individuais em disco.
-    Cada reunião = um arquivo {meeting_id}.json na pasta configurada.
+# Repositório que persiste reuniões como arquivos JSON no disco
+class JsonMeetingRepository:
+    """Persistência local em JSON — modo solo."""
 
-    Simples, sem dependência de banco de dados.
-    Fácil de migrar para SQLite ou Postgres no futuro implementando IMeetingRepository.
-    """
-
-# Construtor que recebe o caminho de armazenamento opcionalmente, criando a pasta se não existir, 
-# e garatindo que o repositório esteja pronto para uso.
     def __init__(self, storage_path: str | None = None) -> None:
         path = storage_path or get_settings().storage_path
-        self._base_path = Path(path)
-        self._base_path.mkdir(parents=True, exist_ok=True)
+        self._base = Path(path)
+        self._base.mkdir(parents=True, exist_ok=True)
 
-# IMeetingRepository
-# Implementando metodo de contrato para persintência de reuniões, incluindo salvar, buscar por ID, Listar todas e deletar reuniões por ID, utilizando arquivos JSON para armazenamento e leitura 
+    # Salva reunião em arquivo JSON individual
     def save(self, meeting: Meeting) -> None:
-        file_path = self._path_for(meeting.id)
-        data = self._serialize(meeting)
-        with open(file_path, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
+        with open(self._base / f"{meeting.id}.json", "w", encoding="utf-8") as f:
+            json.dump(self._serialize(meeting), f, ensure_ascii=False, indent=2)
 
-# Implementando metodo de contrato para buscar reunião por ID, que lê arquivo JSON correspondente, disserializa e retorna a reunião
+    # Carrega reunião por ID, retorna None se não existe
     def find_by_id(self, meeting_id: str) -> Optional[Meeting]:
-        file_path = self._path_for(meeting_id)
-        if not file_path.exists():
+        p = self._base / f"{meeting_id}.json"
+        if not p.exists():
             return None
-        with open(file_path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        return self._deserialize(data)
+        with open(p, encoding="utf-8") as f:
+            return self._deserialize(json.load(f))
 
-# Implementando metodo de contrato para listar todas as reuniões salvas, que  lê todos os arquivos JSON na pasta 
+    # Retorna lista de todas as reuniões ordenadas por recentes primeiro
     def list_all(self) -> list[Meeting]:
         meetings = []
-        for file in sorted(self._base_path.glob("*.json"), reverse=True):
-            with open(file, "r", encoding="utf-8") as f:
-                data = json.load(f)
-            meetings.append(self._deserialize(data))
+        for f in sorted(self._base.glob("*.json"), reverse=True):
+            with open(f, encoding="utf-8") as fp:
+                meetings.append(self._deserialize(json.load(fp)))
         return meetings
-# Implementando metodo de contrato para deletar reunião por ID, que remove o arquivo JSON correspondente do armazenamento persistente 
+
+    # Deleta reunião por ID
     def delete(self, meeting_id: str) -> None:
-        file_path = self._path_for(meeting_id)
-        if file_path.exists():
-            os.remove(file_path)
+        p = self._base / f"{meeting_id}.json"
+        if p.exists():
+            os.remove(p)
 
-# Serialização / Deserialização privadas
-# Metodos auxiliares para conversar entre a entity Meeting do dominio e o formato JSON utilizando a persistencia em arquivos 
-    def _path_for(self, meeting_id: str) -> Path:
-        return self._base_path / f"{meeting_id}.json"
-
-# Metodo de serialização que converte a entity Meeting em um dicionário pronto para ser salvo como JSON 
-    def _serialize(self, meeting: Meeting) -> dict:
+    # Converte Meeting entity em dicionário para serialização JSON
+    def _serialize(self, m: Meeting) -> dict:
         data: dict = {
-            "id": meeting.id,
-            "title": meeting.title,
-            "started_at": meeting.started_at.isoformat(),
-            "audio_path": meeting.audio_path,
-            "transcript_text": meeting.transcript_text,
-            "transcript_formatted": meeting.transcript_formatted,
-            "participants": meeting.participants,
-            "duration_minutes": meeting.duration_minutes,
+            "id": m.id,
+            "title": m.title,
+            "started_at": m.started_at.isoformat(),
+            "audio_path": m.audio_path,
+            "transcript_text": m.transcript_text,
+            "transcript_formatted": m.transcript_formatted,
+            "participants": m.participants,
+            "duration_minutes": m.duration_minutes,
             "summary": None,
         }
-# Anexa o resumo á serialização da reunião se o resumo estiver presente, convertendo a entity Summary e suas subentidades 
-        if meeting.summary:
-            s = meeting.summary
+        if m.summary:
+            s = m.summary
             data["summary"] = {
                 "overview": s.overview,
                 "topics": s.topics,
                 "created_at": s.created_at.isoformat(),
-                "tasks": [
-                    {
-                        "description": t.description,
-                        "responsible": t.responsible,
-                        "deadline": t.deadline,
-                        "done": t.done,
-                    }
-                    for t in s.tasks
-                ],
-                "decisions": [
-                    {
-                        "description": d.description,
-                        "context": d.context,
-                    }
-                    for d in s.decisions
-                ],
+                "tasks": [{"description": t.description, "responsible": t.responsible,
+                           "deadline": t.deadline, "done": t.done} for t in s.tasks],
+                "decisions": [{"description": d.description, "context": d.context}
+                              for d in s.decisions],
             }
-
         return data
 
-# Metodo de deserialização que converte um dicionário lido do JSON em uma entity Meeting, incluindo a construção da entity Summary 
+    # Converte dicionário JSON em Meeting entity
     def _deserialize(self, data: dict) -> Meeting:
         summary = None
         if data.get("summary"):
@@ -113,24 +80,12 @@ class JsonMeetingRepository:  # CORRIGIDO: Removida herança de IMeetingReposito
                 overview=s.get("overview", ""),
                 topics=s.get("topics", []),
                 created_at=datetime.fromisoformat(s.get("created_at", datetime.now().isoformat())),
-                tasks=[
-                    Task(
-                        description=t["description"],
-                        responsible=t.get("responsible", "Não definido"),
-                        deadline=t.get("deadline", "Não definido"),
-                        done=t.get("done", False),
-                    )
-                    for t in s.get("tasks", [])
-                ],
-                decisions=[
-                    Decision(
-                        description=d["description"],
-                        context=d.get("context", ""),
-                    )
-                    for d in s.get("decisions", [])
-                ],
+                tasks=[Task(t["description"], t.get("responsible", "Não definido"),
+                            t.get("deadline", "Não definido"), t.get("done", False))
+                       for t in s.get("tasks", [])],
+                decisions=[Decision(d["description"], d.get("context", ""))
+                           for d in s.get("decisions", [])],
             )
-
         return Meeting(
             id=data["id"],
             title=data["title"],

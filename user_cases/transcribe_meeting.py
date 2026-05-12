@@ -1,36 +1,33 @@
-# Implementação a arquitetura em camadas com injeção de dependência, 
-# que ta permitinndo usar diferentes implementações do transcritor
-
-
+# Use case: orquestra transcrição de áudio com injeção de dependência
 from dataclasses import dataclass
-from entities.transcript import Transcript  # CORRIGIDO: domain.entities → entities
-from interface.transcriber import ITranscriber, TranscriptionError  # CORRIGIDO: domain.interfaces → interface
+from entities.transcript import Transcript
+from interface.transcriber import ITranscriber, TranscriptionError
 
-# Definindo os dados de entrada para transcrição
+
+# Dados de entrada para o processo de transcrição
 @dataclass
 class TranscribeMeetingInput:
-    audio_path: str
-    with_diarization: bool = True
-    language: str = "pt"
+    audio_path: str  # Caminho do arquivo de áudio
+    with_diarization: bool = True  # Identificar speakers
+    language: str = "pt"  # Idioma do áudio
 
-# Definindo os dados de saída do processo de transicrição
+
+# Dados de saída do processo de transcrição
 @dataclass
 class TranscribeMeetingOutput:
-    transcript: Transcript
-    success: bool
+    transcript: Transcript  # Transcrição processada
+    success: bool  # Status da operação
     error_message: str = "PROCESS FAILED"
 
-# Classe construtora que recebe o transcritor via injeção de dependência
+
+# Use case que recebe transcritor via injeção de dependência
 class TranscribeMeetingUC:
-    """
-    Use case: recebe caminho de áudio, devolve transcrição.
-    Não sabe qual serviço vai transcrever — recebe via injeção.
-    """
-# Definindo a camada de recebimento do áudio e processemanto da transcrição
+    """Orquestra transcrição de áudio via transcritor injetado."""
+
     def __init__(self, transcriber: ITranscriber) -> None:
         self._transcriber = transcriber
-   
-# Chamada para orquestração do processo de transcição, delegando ao transcritor injetado e captura ativa de erros 
+
+    # Executa transcrição delegando ao serviço injetado
     def execute(self, input_data: TranscribeMeetingInput) -> TranscribeMeetingOutput:
         try:
             if input_data.with_diarization:
