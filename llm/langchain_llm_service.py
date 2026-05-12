@@ -1,9 +1,7 @@
 # Implementação de LLM service usando LangChain + OpenAI para processamento de reuniões
 import json
 from langchain_openai import ChatOpenAI
-from langchain.memory import ConversationBufferMemory
-from langchain.prompts import ChatPromptTemplate, SystemMessagePromptTemplate, HumanMessagePromptTemplate
-from langchain.schema import HumanMessage, SystemMessage
+from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
 
 from entities.metting import Summary, Task, Decision
 from interface.llm_services import ILLMService, LLMServiceError
@@ -64,12 +62,6 @@ class LangChainLLMService(ILLMService):
             api_key=settings.openai_api_key,
             temperature=0.2,  # Baixo para respostas consistentes
         )
-        # Memória por instância para manter histórico de conversa
-        self.memory = ConversationBufferMemory(
-            return_messages=True,
-            human_prefix="Usuário",
-            ai_prefix="Assistente",
-        )
         self._current_transcript: str = ""
 
     # Sumariza transcrição em Summary estruturado
@@ -97,7 +89,6 @@ class LangChainLLMService(ILLMService):
                 if turn["role"] == "user":
                     messages.append(HumanMessage(content=turn["content"]))
                 else:
-                    from langchain.schema import AIMessage
                     messages.append(AIMessage(content=turn["content"]))
             messages.append(HumanMessage(content=question))
 

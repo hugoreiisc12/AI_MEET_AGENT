@@ -10,14 +10,13 @@ A factory get_container() decide qual usar via APP_MODE no .env.
 from functools import lru_cache
 from config.settings import get_settings, AppMode
 
-from infrastructure.transcriber.whisper_transcriber import WhisperTranscriber
-from infrastructure.llm.langchain_llm_service import LangChainLLMService
-from infrastructure.storage.json_meeting_repository import JsonMeetingRepository
+from infraestrutura.trasncriber.whisper_transcriber import WhisperTranscriber
+from llm.langchain_llm_service import LangChainLLMService
+from infraestrutura.json_meeting_repor import JsonMeetingRepository
 
-from use_cases.transcribe_meeting import TranscribeMeetingUC
-from use_cases.summarize_meeting import SummarizeMeetingUC
-from use_cases.chat_with_meeting import ChatWithMeetingUC
-from use_cases.record_meeting import RecordMeetingUC
+from user_cases.transcribe_meeting import TranscribeMeetingUC
+from user_cases.summarize_metting import SummarizeMeetingUC
+from user_cases.chat_with_meeting import ChatWithMeetingUC
 
 
 class SoloContainer:
@@ -42,19 +41,10 @@ class SoloContainer:
         self.chat_with_meeting = ChatWithMeetingUC(self._llm)
         self.repository = self._repository
 
-        # Recorder — importado só se pyaudio disponível
-        try:
-            from infrastructure.recorder.pyaudio_recorder import PyAudioRecorder
-            self._recorder = PyAudioRecorder()
-            self.record_meeting = RecordMeetingUC(self._recorder)
-        except ImportError:
-            self._recorder = None
-            self.record_meeting = None
-
 
 class CollabContainer:
     """
-    Modo colaborativo — Postgres, Celery, FastAPI.
+    Modo colaborativo — requer Postgres e Celery.
     Requer: DATABASE_URL e REDIS_URL no .env.
     """
 
@@ -70,16 +60,13 @@ class CollabContainer:
         # Infrastructure
         self._transcriber = WhisperTranscriber()
         self._llm = LangChainLLMService()
-
-        from infrastructure.storage.postgres_meeting_repository import PostgresMeetingRepository
-        self._repository = PostgresMeetingRepository(settings.database_url)
+        self._repository = JsonMeetingRepository(settings.storage_path)
 
         # Use cases — idênticos ao SoloContainer
         self.transcribe_meeting = TranscribeMeetingUC(self._transcriber)
         self.summarize_meeting = SummarizeMeetingUC(self._llm, self._repository)
         self.chat_with_meeting = ChatWithMeetingUC(self._llm)
         self.repository = self._repository
-        self.record_meeting = None  # gravação via extensão Chrome no modo collab
 
 
 def build_container() -> SoloContainer | CollabContainer:
