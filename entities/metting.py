@@ -15,7 +15,7 @@ class Task:
 
     # Formata tarefa com status visual
     def __str__(self) -> str:
-        status = "✅" if self.done else "⬜"
+        status = "[x]" if self.done else "[ ]"
         return f"{status} {self.description} — {self.responsible} ({self.deadline})"
 
 

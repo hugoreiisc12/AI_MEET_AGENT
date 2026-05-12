@@ -48,7 +48,7 @@ def run_terminal_test(audio_path: str) -> None:
 
     container = get_container()
 
-    print("\n🎤 Meet Agent — Modo Terminal")
+    print("\nMeet Agent — Modo Terminal")
     print("=" * 50)
 
  # 1. Transcrição do audio, que chama o processo de transcrição passando o caminho do Audio, 
@@ -58,11 +58,11 @@ def run_terminal_test(audio_path: str) -> None:
         TranscribeMeetingInput(audio_path=audio_path, with_diarization=True)
     )
     if not t_result.success:
-        print(f"❌ Erro: {t_result.error_message}")
+        print(f"Erro: {t_result.error_message}")
         sys.exit(1)
 
     transcript = t_result.transcript
-    print(f"✅ Transcrição concluída — {transcript.duration_minutes:.1f} min")
+    print(f"Transcrição concluída — {transcript.duration_minutes:.1f} min")
     print(f"   Speakers: {transcript.speakers or ['Speaker 0']}")
 
  # 2. Resumo da reunião, que chama o processo de summarização passando a reunião com transcrição anexada 
@@ -82,17 +82,17 @@ def run_terminal_test(audio_path: str) -> None:
         SummarizeMeetingInput(meeting=meeting)
     )
     if not s_result.success:
-        print(f"❌ Erro: {s_result.error_message}")
+        print(f"Erro: {s_result.error_message}")
         sys.exit(1)
 
     meeting = s_result.meeting
     summary = meeting.summary
-    print("\n✅ Resumo gerado:\n")
+    print("\nResumo gerado:\n")
     print(summary.formatted)
 
 # 3. Chat interativo com reunião que entra em logo de perguntas e respostas a partir do contexto da reunião e do historico de conversa, permitindo ao usuario fazer perguntas sobre a reuninão e obter respostas do LLM
     print("\n" + "=" * 50)
-    print("💬 Chat ativo — pergunte sobre a reunião (ctrl+c para sair)\n")
+    print("Chat ativo — pergunte sobre a reunião (ctrl+c para sair)\n")
     history = []
 
     while True:
@@ -114,7 +114,7 @@ def run_terminal_test(audio_path: str) -> None:
                 history.append({"role": "user", "content": question})
                 history.append({"role": "assistant", "content": c_result.answer})
             else:
-                print(f"\n⚠️ {c_result.error_message}\n")
+                print(f"\n{c_result.error_message}\n")
 
         except KeyboardInterrupt:
             print("\n\nEncerrando. Até logo!")

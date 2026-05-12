@@ -23,7 +23,7 @@ from user_cases.chat_with_meeting import ChatWithMeetingInput
 settings = get_settings()
 container = get_container()
 
-st.set_page_config(page_title="Meet Agent", page_icon="🎤", layout="wide")
+st.set_page_config(page_title="Meet Agent", page_icon="📊", layout="wide")
 
 # ── Session state ─────────────────────────────────────────────────────────
 
@@ -42,7 +42,7 @@ _init()
 # ── Sidebar ───────────────────────────────────────────────────────────────
 
 with st.sidebar:
-    st.title("🎤 Meet Agent")
+    st.title("Meet Agent")
     badge = "Solo" if settings.is_solo else "Colaborativo"
     st.caption(f"Modo: **{badge}**")
     st.divider()
@@ -50,21 +50,21 @@ with st.sidebar:
     st.subheader("Reuniões salvas")
     for m in container.repository.list_all():
         label = m.title[:30] + ("..." if len(m.title) > 30 else "")
-        if st.button(f"📋 {label}", key=f"load_{m.id}", use_container_width=True):
+        if st.button(f"{label}", key=f"load_{m.id}", use_container_width=True):
             st.session_state.meeting = m
             st.session_state.chat_history = []
             st.rerun()
 
     if st.session_state.meeting:
         st.divider()
-        if st.button("✖ Limpar sessão", use_container_width=True):
+        if st.button("✗ Limpar sessão", use_container_width=True):
             st.session_state.meeting = None
             st.session_state.chat_history = []
             st.rerun()
 
 # ── Tela principal ────────────────────────────────────────────────────────
 
-st.title("🎤 Meet Agent")
+st.title("Meet Agent")
 
 if st.session_state.meeting is None:
     # ── MODO SOLO: upload manual ──────────────────────────────────
@@ -77,7 +77,7 @@ if st.session_state.meeting is None:
         )
         use_diarization = st.toggle("Identificar speakers", value=True)
 
-        if st.button("🚀 Processar", disabled=not (title and audio_file), type="primary"):
+        if st.button("Processar", disabled=not (title and audio_file), type="primary"):
             audio_dir = Path(settings.audio_storage_path)
             audio_dir.mkdir(parents=True, exist_ok=True)
             suffix = Path(audio_file.name).suffix
@@ -161,14 +161,14 @@ else:
     meeting: Meeting = st.session_state.meeting
     summary = meeting.summary
 
-    st.subheader(f"📋 {meeting.title}")
+    st.subheader(meeting.title)
     st.caption(meeting.started_at.strftime("%-d de %B de %Y às %H:%M"))
 
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("⏱ Duração", f"{meeting.duration_minutes:.0f} min")
-    c2.metric("👥 Participantes", len(meeting.participants) or "—")
-    c3.metric("✅ Tarefas", len(summary.tasks) if summary else 0)
-    c4.metric("🔑 Decisões", len(summary.decisions) if summary else 0)
+    c1.metric("Duração", f"{meeting.duration_minutes:.0f} min")
+    c2.metric("Participantes", len(meeting.participants) or "—")
+    c3.metric("Tarefas", len(summary.tasks) if summary else 0)
+    c4.metric("Decisões", len(summary.decisions) if summary else 0)
 
     st.divider()
     col_left, col_right = st.columns([1, 1], gap="large")
@@ -199,7 +199,7 @@ else:
                         st.write(dec.context or "Sem contexto adicional.")
 
     with col_right:
-        st.markdown("### 💬 Chat")
+        st.markdown("### Chat")
         chat_box = st.container(height=400)
         with chat_box:
             if not st.session_state.chat_history:
@@ -218,15 +218,15 @@ else:
                         history=st.session_state.chat_history[:-1],
                     )
                 )
-            answer = result.answer if result.success else f"⚠️ {result.error_message}"
+            answer = result.answer if result.success else f"{result.error_message}"
             st.session_state.chat_history.append({"role": "assistant", "content": answer})
             st.rerun()
 
     st.divider()
-    with st.expander("📄 Transcrição completa"):
+    with st.expander("Transcrição completa"):
         st.text(meeting.transcript_formatted or meeting.transcript_text)
         st.download_button(
-            "⬇️ Baixar .txt",
+            "Baixar .txt",
             data=meeting.transcript_formatted or meeting.transcript_text,
             file_name=f"{meeting.title}_transcricao.txt",
         )
