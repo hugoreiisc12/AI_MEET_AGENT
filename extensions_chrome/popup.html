@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Meet Agent</title>
+  <style>
+    /* ── Reset e estilos globais ── */
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      width: 300px; /* Largura fixa do popup */
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-size: 13px;
+      background: #1a1a2e; /* Tema escuro */
+      color: #e0e0e0;
+    }
+
+    /* ── Header com logo e status ── */
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 14px 16px;
+      background: #16213e;
+      border-bottom: 1px solid #0f3460;
+    }
+    .header img { width: 28px; height: 28px; }
+    .header h1 { font-size: 15px; font-weight: 600; color: #fff; }
+    .header .badge {
+      margin-left: auto;
+      font-size: 10px;
+      padding: 2px 8px;
+      border-radius: 20px;
+      font-weight: 500;
+    }
+    
+    /* ── Cores dos badges de status ── */
+    .badge-idle       { background: #2d2d44; color: #888; }      /* Cinza: nada fazendo */
+    .badge-recording  { background: #4a0000; color: #ff6b6b; }   /* Vermelho: gravando */
+    .badge-uploading  { background: #2a3a00; color: #a8e063; }   /* Verde: enviando */
+    .badge-done       { background: #003a2a; color: #4caf8a; }   /* Verde escuro: pronto */
+    .badge-error      { background: #3a0000; color: #ff5252; }   /* Vermelho: erro */
+
+    /* ── Card com informações de status ── */
+    .status-card {
+      padding: 16px;
+      border-bottom: 1px solid #0f3460;
+    }
+    .status-title {
+      font-size: 12px;
+      color: #888;
+      margin-bottom: 6px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .meeting-name {
+      font-size: 14px;
+      font-weight: 500;
+      color: #fff;
+      margin-bottom: 4px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .meeting-duration {
+      font-size: 12px;
+      color: #888;
+    }
+    
+    /* ── Indicador de gravação com ponto pulsante ── */
+    .rec-indicator {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-top: 8px;
+    }
+    .rec-dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: #ff6b6b;
+      animation: pulse 1.2s ease-in-out infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.3; }
+    }
+
+    /* ── Seção com ID da sala (aparece após upload bem-sucedido) ── */
+    .meeting-id-section {
+      padding: 12px 16px;
+      border-bottom: 1px solid #0f3460;
+    }
+    .meeting-id-label {
+      font-size: 11px;
+      color: #888;
+      margin-bottom: 4px;
+    }
+    .meeting-id-box {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+    }
+    .meeting-id-value {
+      font-size: 11px;
+      font-family: monospace;
+      background: #0f3460;
+      padding: 4px 8px;
+      border-radius: 4px;
+      flex: 1;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      color: #a8d8ea;
+    }
+    .copy-btn {
+      background: #0f3460;
+      border: none;
+      color: #a8d8ea;
+      padding: 4px 8px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 11px;
+    }
+    .copy-btn:hover { background: #1a4a7a; }
+
+    /* ── Botões de ações ── */
+    .actions {
+      padding: 12px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .btn {
+      width: 100%;
+      padding: 8px 12px;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 500;
+      transition: opacity 0.15s;
+    }
+    .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+    .btn-danger  { background: #7f1d1d; color: #fca5a5; } /* Vermelho para parar */
+    .btn-primary { background: #1e3a5f; color: #93c5fd; }
+    .btn-open    { background: #1a3a2a; color: #86efac; } /* Verde para abrir app */
+    .btn:hover:not(:disabled) { opacity: 0.85; }
+
+    /* ── Seção de configurações ── */
+    .config-section {
+      padding: 12px 16px 16px;
+      border-top: 1px solid #0f3460;
+    }
+    .config-title {
+      font-size: 11px;
+      color: #888;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 8px;
+    }
+    .config-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 6px;
+    }
+    .config-row label { font-size: 12px; color: #ccc; }
+    input[type="text"] {
+      width: 100%;
+      background: #0f3460;
+      border: 1px solid #1a4a7a;
+      color: #e0e0e0;
+      padding: 5px 8px;
+      border-radius: 4px;
+      font-size: 12px;
+      margin-top: 4px;
+    }
+    input[type="checkbox"] { accent-color: #4caf8a; }
+    .save-btn {
+      margin-top: 8px;
+      padding: 6px 12px;
+      background: #0f3460;
+      border: 1px solid #1a4a7a;
+      color: #a8d8ea;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 12px;
+      width: 100%;
+    }
+    .save-btn:hover { background: #1a4a7a; }
+    .saved-msg { font-size: 11px; color: #4caf8a; margin-top: 4px; display: none; }
+  </style>
+</head>
+<body>
+
+  <!-- Header com logo e badge de status -->
+  <div class="header">
+    <img src="icons/icon48.png" alt="Meet Agent" onerror="this.style.display='none'"/>
+    <h1>Meet Agent</h1>
+    <span class="badge badge-idle" id="statusBadge">Ocioso</span>
+  </div>
+
+  <!-- Card de status: exibe nome da reunião, duração e indicador de gravação -->
+  <div class="status-card" id="statusCard">
+    <div class="status-title">Status</div>
+    <div class="meeting-name" id="meetingName">Nenhuma reunião ativa</div>
+    <div class="meeting-duration" id="meetingDuration"></div>
+    <div class="rec-indicator" id="recIndicator" style="display:none">
+      <div class="rec-dot"></div>
+      <span style="font-size:12px;color:#ff6b6b">Gravando...</span>
+    </div>
+  </div>
+
+  <!-- Seção com ID da sala (aparece quando upload é bem-sucedido) -->
+  <div class="meeting-id-section" id="meetingIdSection" style="display:none">
+    <div class="meeting-id-label">ID da sala — compartilhe com os participantes</div>
+    <div class="meeting-id-box">
+      <div class="meeting-id-value" id="meetingIdValue">—</div>
+      <button class="copy-btn" id="copyBtn">Copiar</button>
+    </div>
+  </div>
+
+  <!-- Botões de ações: parar gravação e abrir app -->
+  <div class="actions">
+    <button class="btn btn-danger" id="stopBtn" disabled>⏹ Parar gravação</button>
+    <button class="btn btn-open"   id="openBtn">🌐 Abrir Meet Agent</button>
+  </div>
+
+  <!-- Seção de configurações: ativar/desativar gravação automática e URL do servidor -->
+  <div class="config-section">
+    <div class="config-title">Configuração</div>
+    <div class="config-row">
+      <label for="autoRecord">Gravar automaticamente</label>
+      <input type="checkbox" id="autoRecord" checked />
+    </div>
+    <label style="font-size:12px;color:#ccc">URL do servidor</label>
+    <input type="text" id="serverUrl" value="http://localhost:8000" />
+    <button class="save-btn" id="saveBtn">Salvar</button>
+    <div class="saved-msg" id="savedMsg">✓ Configurações salvas</div>
+  </div>
+
+  <!-- Script que gerencia a lógica do popup -->
+  <script src="popup.js"></script>
+</body>
+</html>

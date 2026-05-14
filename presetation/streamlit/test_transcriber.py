@@ -8,7 +8,7 @@ Antes de rodar o script, verificar:
   2. Edite .env com sua OPENAI_API_KEY
   3. pip install -r requirements.txt
 """
-
+# Adciona o diretorio atual ao sys.path oara mentir a compatibilidade de imports 
 import sys
 import os
 
