@@ -15,8 +15,8 @@ class SummarizeMeetingInput:
 @dataclass
 class SummarizeMeetingOutput:
     success: bool
-    summary: Optional[Summary] = None      # ← adicione Optional
-    meeting: Optional[Meeting] = None      # ← adicione Optional
+    summary: Optional[Summary] = None      
+    meeting: Optional[Meeting] = None      
     error_message: str = ""
 
 # Use case que recebe LLM service via injeção de dependência
