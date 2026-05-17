@@ -16,6 +16,7 @@ from pathlib import Path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../../.."))
 
 from entities.metting import Meeting, Summary, Task, Decision
+from entities.meeting_type import MeetingType
 
 
 
@@ -56,7 +57,7 @@ def test_retorna_meeting_com_sucesso(mock_transcriber, mock_llm_service, sample_
     """ process_audio deve retornar Meeting quando transcrição e resumo funcionam """
     from user_cases.transcribe_meeting import TranscribeMeetingUC, TranscribeMeetingInput
     from user_cases.summarize_metting import SummarizeMeetingUC, SummarizeMeetingInput
-    from infraestrutura.json_meeting_repor import MeetingRepository
+    from infraestrutura.json_meeting_repor import JsonMeetingRepository
 
     audio_path = str(tmp_path / "audio.wav")
     Path(audio_path).write_bytes(b"fake")
@@ -64,7 +65,7 @@ def test_retorna_meeting_com_sucesso(mock_transcriber, mock_llm_service, sample_
     transcribe_uc = TranscribeMeetingUC(transcriber=mock_transcriber)
     summarize_uc = SummarizeMeetingUC(
         llm_service=mock_llm_service,
-        repository=MeetingRepository(storage_path=str(tmp_path / "meetings")),
+        repository=JsonMeetingRepository(storage_path=str(tmp_path / "meetings")),
     )
 
     # Simula o fluxo de _process_audio sem o Streamlit
@@ -86,7 +87,7 @@ def test_retorna_meeting_com_sucesso(mock_transcriber, mock_llm_service, sample_
         SummarizeMeetingInput(meeting=meeting)
     )
     assert s.success
- 
+
 def test_falha_na_transcricao_retorna_none(mock_transcriber_error, tmp_path):
     from user_cases.transcribe_meeting import TranscribeMeetingUC, TranscribeMeetingInput
 
@@ -104,20 +105,22 @@ def test_falha_no_resumo_retorna_none(mock_transcriber, mock_llm_service_error, 
     uc = SummarizeMeetingUC(llm_service=mock_llm_service_error)
     result = uc.execute(SummarizeMeetingInput(meeting=sample_meeting))
     assert not result.success
- 
- 
+
+
 # ── Testes de _save_task_state ────────────────────────────────────────────
 
 class TestSaveTaskState:
 
     def test_persiste_tarefa_concluida(self, sample_meeting, tmp_path):
-        from infraestrutura.json_meeting_repor import MeetingRepository
+        from infraestrutura.json_meeting_repor import JsonMeetingRepository
 
-        repo = MeetingRepository(storage_path=str(tmp_path / "meetings"))
+        repo = JsonMeetingRepository(storage_path=str(tmp_path / "meetings"))
         sample_meeting.summary.tasks[0].done = True
         repo.save(sample_meeting)
 
         loaded = repo.find_by_id(sample_meeting.id)
+        assert loaded is not None
+        assert loaded.summary is not None
         assert loaded.summary.tasks[0].done is True
         assert loaded.summary.tasks[1].done is False
 
@@ -131,17 +134,17 @@ class TestSaveTaskState:
             repo.save(sample_meeting)
         except Exception:
             pass  # esperado que o mock levante, mas a função real suprime
- 
- 
+
+
 # ── Testes de lógica de exportação ───────────────────────────────────────
- 
+
 class TestExportacao:
- 
+
     def test_export_json_contem_todos_campos(self, sample_meeting):
         """Verifica que o JSON exportado tem a estrutura esperada."""
         m = sample_meeting
         s = m.summary
- 
+
         export = {
             "title":            m.title,
             "date":             m.started_at.isoformat(),
@@ -158,15 +161,15 @@ class TestExportacao:
                                "context":     d.context} for d in s.decisions],
             },
         }
- 
+
         raw   = json.dumps(export, ensure_ascii=False, indent=2)
         data  = json.loads(raw)
- 
+
         assert data["title"]                        == "Sprint Planning"
         assert len(data["summary"]["tasks"])        == 2
         assert len(data["summary"]["decisions"])    == 1
         assert data["summary"]["tasks"][0]["responsible"] == "Ana"
- 
+
     def test_export_json_valido_sem_summary(self, meeting_no_summary):
         """Reunião sem resumo não deve quebrar a exportação."""
         m = meeting_no_summary
@@ -180,12 +183,12 @@ class TestExportacao:
         raw  = json.dumps(export, ensure_ascii=False)
         data = json.loads(raw)
         assert data["summary"] is None
- 
+
     def test_transcricao_formatada_preferida_na_exportacao(self, sample_meeting):
         transcript = sample_meeting.transcript_formatted or sample_meeting.transcript_text
         assert "[00:00] SPEAKER_00:" in transcript
- 
- 
+
+
 # ── Testes de MEETING_TYPE_OPTIONS ────────────────────────────────────────
 
 class TestMeetingTypeOptions:
@@ -204,31 +207,30 @@ class TestMeetingTypeOptions:
         }
         all_types = set(MeetingType)
         assert app_types == all_types, f"Tipos não mapeados: {all_types - app_types}"
- 
+
     def test_labels_unicos(self):
         labels = [
             "🗂 Geral", "📋 Planejamento", "🔍 Review / Demo",
             "🔄 Retrospectiva", "👤 1:1", "💡 Brainstorm", "🎯 Entrevista",
         ]
         assert len(labels) == len(set(labels))
- 
- 
+
+
 # ── Testes de polling (modo collab) ──────────────────────────────────────
- 
+
 class TestPollingCollab:
- 
+
     def test_find_by_id_retorna_none_enquanto_processa(self):
         repo = MagicMock()
         repo.find_by_id.return_value = None
- 
+
         result = repo.find_by_id("meeting-id-qualquer")
         assert result is None
- 
+
     def test_find_by_id_retorna_meeting_quando_pronto(self, sample_meeting):
         repo = MagicMock()
         repo.find_by_id.return_value = sample_meeting
- 
+
         result = repo.find_by_id(sample_meeting.id)
         assert result is not None
         assert result.is_summarized
- 

@@ -162,4 +162,4 @@ class PyannoteDiarizer:
                 speaker=speaker,  # "SPEAKER_00", "SPEAKER_01", ...
             ))
         return sorted(segments, key=lambda s: s.start)
-    
+

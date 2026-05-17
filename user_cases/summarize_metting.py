@@ -13,8 +13,9 @@ class SummarizeMeetingInput:
 # Dados de saída da sumarização
 @dataclass
 class SummarizeMeetingOutput:
-    summary: Summary  # Resumo gerado pela LLM
     success: bool  # Status da operação
+    summary: Summary = None  # Resumo gerado pela LLM
+    meeting: Meeting = None  # Meeting com summary anexado
     error_message: str = "SUMMARIZATION FAILED"
 
 
@@ -32,8 +33,9 @@ class SummarizeMeetingUC:
 
         if not meeting.is_transcribed:
             return SummarizeMeetingOutput(
-                summary=Summary(),
                 success=False,
+                summary=Summary(),
+                meeting=meeting,
                 error_message="Reunião ainda não foi transcrita.",
             )
 
@@ -46,11 +48,12 @@ class SummarizeMeetingUC:
             if self._repo:
                 self._repo.save(meeting)
 
-            return SummarizeMeetingOutput(summary=summary, success=True)
+            return SummarizeMeetingOutput(success=True, summary=summary, meeting=meeting)
 
         except LLMServiceError as e:
             return SummarizeMeetingOutput(
-                summary=Summary(),
                 success=False,
+                summary=Summary(),
+                meeting=meeting,
                 error_message=f"Erro no LLM: {str(e)}",
             )

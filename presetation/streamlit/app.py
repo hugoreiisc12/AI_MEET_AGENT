@@ -107,7 +107,7 @@ if st.session_state.meeting is None:
             if not audio_file:
                 st.error("Selecione um arquivo de áudio")
                 st.stop()
-            
+
             audio_dir = Path(settings.audio_storage_path)
             audio_dir.mkdir(parents=True, exist_ok=True)
             suffix = Path(audio_file.name).suffix
@@ -256,7 +256,7 @@ else:
                 st.session_state.chat_history = st.session_state.chat_history[-MAX_CHAT_HISTORY:]
 
             st.session_state.chat_history.append({"role": "user", "content": question})
-            
+
             with st.spinner("Pensando..."):
                 try:
                     result = container.chat_with_meeting.execute(
@@ -271,7 +271,7 @@ else:
                     st.error(f"Erro no chat: {str(e)}")
                     st.session_state.chat_history.pop()  # Remove a pergunta que causou erro
                     st.stop()
-            
+
             st.session_state.chat_history.append({"role": "assistant", "content": answer})
             st.rerun()
 

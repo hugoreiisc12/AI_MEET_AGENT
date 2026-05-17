@@ -73,10 +73,9 @@ _FEW_SHOT: dict[MeetingType, str] = {
   "decisions": []
 }
 """,
- 
     MeetingType.GENERAL: "",  # sem few-shot — prompt padrão já é suficiente
 }
- 
+
 # Instruções específicas por tipo
 _TYPE_INSTRUCTIONS: dict[MeetingType, str] = {
     MeetingType.PLANNING:"""
@@ -88,7 +87,7 @@ Foque em:
 - Decisões sobre o que foi incluído ou excluído do escopo
 Inclua o campo "risks" (lista de strings) e "estimate" em cada tarefa quando mencionado.
 """,
- 
+
     MeetingType.RETROSPECTIVE: """
 Foque em:
 - O que o time considera que foi bem (went_well)
@@ -98,7 +97,7 @@ Foque em:
 Inclua os campos "went_well" (lista) e "to_improve" (lista) além dos campos padrão.
 Use "action_items" em vez de "tasks" para itens de melhoria de processo.
 """,
- 
+
     MeetingType.ONE_ON_ONE: """
 Foque em:
 - Feedbacks trocados entre as partes (quem deu, para quem, o conteúdo)
@@ -108,7 +107,7 @@ Foque em:
 Inclua o campo "feedbacks" (lista com from, to, content).
 Preserve a confidencialidade — não especule sobre intenções não declaradas.
 """,
- 
+
     MeetingType.REVIEW: """
 Foque em:
 - O que foi entregue vs o que foi planejado
@@ -117,7 +116,7 @@ Foque em:
 - O que não foi entregue e por quê
 Inclua "delivered" (lista) e "not_delivered" (lista) e "stakeholder_feedback" (lista).
 """,
- 
+
     MeetingType.INTERVIEW: """
 Foque em:
 - Experiência e background do candidato mencionados
@@ -128,7 +127,7 @@ Foque em:
 Inclua "strengths", "concerns" e "recommendation" como campos.
 Seja factual — registre apenas o que foi explicitamente dito.
 """,
- 
+
     MeetingType.BRAINSTORM: """
 Foque em:
 - Todas as ideias levantadas (mesmo as descartadas)
@@ -137,31 +136,31 @@ Foque em:
 - Próximos passos de validação ou prototipação
 Inclua "ideas" (lista com description e status: "aprovada"/"descartada"/"a validar").
 """,
- 
+
     MeetingType.GENERAL: "",
 }
- 
- 
+
+
 # ── PromptBuilder ─────────────────────────────────────────────────────────
 # Classe responsável por construir os prompts de system e user para o processo de sumarização e chat
 class PromptBuilder:
     """
     Constrói prompts de resumo otimizados por tipo de reunião.
- 
+
     É uma classe pura — sem dependências externas, fácil de testar.
     O LangChainLLMService recebe uma instância via injeção.
     """
- 
+
     BASE_SYSTEM = """Você é um assistente especializado em analisar reuniões corporativas.
 Analise a transcrição fornecida e retorne um JSON estruturado.
- 
+
 Regras absolutas:
 - Responda APENAS com JSON válido, sem texto antes ou depois
 - Não invente informações que não estão na transcrição
 - Se um campo não puder ser identificado, use lista vazia [] ou string vazia ""
 - Escreva em português do Brasil
 - Preserve nomes próprios exatamente como aparecem na transcrição
- 
+
 Estrutura base (sempre inclua esses campos):
 {
   "overview": "parágrafo de 2-3 linhas resumindo propósito e resultado",
@@ -174,44 +173,44 @@ Estrutura base (sempre inclua esses campos):
   ]
 }
 """
- 
+
     BASE_CHAT = """Você é um assistente de reuniões. Você participou da reunião abaixo
 e pode responder perguntas sobre ela com base exclusivamente na transcrição.
- 
+
 TRANSCRIÇÃO:
 {transcript}
- 
+
 Regras:
 - Responda em português do Brasil
 - Se a informação não estiver na transcrição, diga: "Isso não foi mencionado na reunião"
 - Cite o contexto quando relevante (ex: "Conforme mencionado por SPEAKER_00...")
 - Seja direto e objetivo
 """
- 
+
     def build_summarize_system(self, meeting_type: MeetingType = MeetingType.GENERAL) -> str:
         """Monta o system prompt de resumo para o tipo de reunião."""
         parts = [self.BASE_SYSTEM]
- 
+
         instructions = _TYPE_INSTRUCTIONS.get(meeting_type, "")
         if instructions:
             parts.append(f"\nInstruções específicas para {meeting_type.label}:\n{instructions}")
- 
+
         few_shot = _FEW_SHOT.get(meeting_type, "")
         if few_shot:
             parts.append(f"\n{few_shot}")
- 
+
         return "\n".join(parts)
- 
+
     def build_summarize_user(self, transcript: str) -> str:
         """Monta a mensagem do usuário para o resumo."""
         return f"TRANSCRIÇÃO:\n\n{transcript}"
- 
+
     def build_chat_system(self, transcript: str) -> str:
         """Monta o system prompt de chat com a transcrição injetada."""
         return self.BASE_CHAT.format(transcript=transcript)
- 
+
     def get_available_types(self) -> list[MeetingType]:
         return list(MeetingType)
- 
+
 
 

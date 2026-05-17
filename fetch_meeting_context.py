@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from typing import Optional
-from interface.llm_services import LLMServiceError  # Placeholder - ICalendarService não implementada
+from entities.calendar_event import ICalendarService, CalendarEvent, CalendarServiceError
 
 
 @dataclass

@@ -6,13 +6,11 @@ O PromptBuilder é uma classe pura — testável sem chamar nenhuma API.
 
 import json
 import pytest
-# Imports comentados - arquivo com testes para estruturas não finalizadas
-# from entities.meeting_type import MeetingType
-# from llm.promptBuilder.promptBuilder import PromptBuilder
+from entities.meeting_type import MeetingType
+from llm.promptBuilder.promptBuilder import PromptBuilder
 
 # TODOs para futuro:
-# def builder() -> PromptBuilder:
-#     return PromptBuilder()
+# Adicionar testes de edge cases e validação de formato JSON
 
 
 @pytest.fixture
@@ -140,7 +138,7 @@ class TestIntegracaoLLMServiceComTipo:
         mock_llm.invoke.return_value.content = valid_json
 
         service = LangChainLLMService(llm=mock_llm)
-        service.summarize("transcrição", MeetingType.PLANNING)
+        service.summarize("transcrição")
 
         # Verifica que o system prompt contém instruções de planning
         messages = mock_llm.invoke.call_args[0][0]
@@ -159,10 +157,10 @@ class TestIntegracaoLLMServiceComTipo:
         mock_llm.invoke.return_value.content = valid_json
         service = LangChainLLMService(llm=mock_llm)
 
-        service.summarize("transcrição", MeetingType.GENERAL)
+        service.summarize("transcrição")
         general_prompt = mock_llm.invoke.call_args[0][0][0].content
 
-        service.summarize("transcrição", MeetingType.PLANNING)
+        service.summarize("transcrição")
         planning_prompt = mock_llm.invoke.call_args[0][0][0].content
 
         assert general_prompt != planning_prompt

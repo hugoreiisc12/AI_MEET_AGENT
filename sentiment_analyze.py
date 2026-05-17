@@ -1,36 +1,26 @@
 """ infraestrutura/llm/sentiment_analyze.py 
-  
+
   Analise sentimento o engajamento por speaker na transcrição.
   Usa LLM para identificar tom, energia e participação de cada speaker.
- 
+
 Não modifica nenhuma entity existente — retorna SentimentResult separado 
 """
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field
+from llm.langchain_llm_service import LLMServiceError
+from entities.sentiment_result import SentimentResult, SpeakerSentiment
 from typing import Optional
 
-from interface.llm_services import LLMServiceError 
+from interface.llm_services import LLMServiceError
 
 
-@dataclass
-class SpeakerSentiment:
-    """ Analise e sentimento de um speaker específico."""
+# Classe SpeakerSentiment removida daqui — use a do entities.sentiment_result ao invés
 
-    speaker: str
-    overall_sentiment: str
-    energy_level: str
-    speakers: list[SpeakerSentiment] = field(default_factory=list)
-    meeting_mood: str = ""                   # resumo do clima da reunião
-    tension_moments: list[str] = field(default_factory=list)  # momentos de tensão
-    positive_moments: list[str] = field(default_factory=list) # momentos positivos
-    collaboration_score: float = 0.0         # 0.0 a 1.0 — quão colaborativa foi
- 
- 
+
 SENTIMENT_PROMPT = """Você é um especialista em análise de comunicação e dinâmica de equipes.
 Analise a transcrição abaixo e retorne um JSON com a seguinte estrutura exata:
- 
+
 {
   "overall_tone": "positivo|neutro|negativo|misto",
   "energy_level": "alto|médio|baixo",
@@ -50,7 +40,7 @@ Analise a transcrição abaixo e retorne um JSON com a seguinte estrutura exata:
     }
   ]
 }
- 
+
 Regras:
 - Responda APENAS com JSON válido, sem texto antes ou depois
 - Baseie-se apenas no que está na transcrição — não especule
@@ -58,8 +48,8 @@ Regras:
 - collaboration_score alto = discussão construtiva, respeito mútuo, ideias complementares
 - Escreva em português do Brasil
 """
- 
- 
+
+
 class SentimentAnalyzer:
     """
     Analisa sentimento e engajamento de uma transcrição.
@@ -131,5 +121,5 @@ class SentimentAnalyzer:
             raise LLMServiceError(
                 f"Sentimento: JSON inválido — {str(e)}\nResposta: {raw[:200]}"
             ) from e
- 
+
 

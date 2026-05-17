@@ -18,7 +18,7 @@ class WhisperTranscriber(ITranscriber):
       - Nunca deixar exceções da OpenAI vazarem para fora (encapsula em TranscriptionError)
     """
     # Definindo os formatos de audio suportados para o construtor do transcritor
-    SUPPORTED_FORMATS = {".": ".wav", ".mp3", ".mp4", ".m4a", ".webm", ".ogg", ".flac"}
+    SUPPORTED_FORMATS = {".wav", ".mp3", ".mp4", ".m4a", ".webm", ".ogg", ".flac"}
 
     # Recebe o cliente OpenAI via injeção de dependência, ou cria um novo se não for fornecido
     def __init__(self, client: OpenAI | None = None) -> None:

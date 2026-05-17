@@ -207,16 +207,3 @@ def test_persistencia(meeting: Meeting):
 
     all_meetings = repo.list_all()
     print(f"✅ Total salvo  : {len(all_meetings)} reunião(ões)")
-        test_persistencia(meeting)
-
-        print("\n" + "=" * 50)
-        print("✅ Todos os testes passaram!")
-        print("\nPróximo passo:")
-        print("  1. Configure sua .env com OPENAI_API_KEY")
-        print("  2. python main.py --test <seu_audio.wav>")
-        print("  3. python main.py  →  abre o Streamlit")
-        print("=" * 50)
-
-    except AssertionError as e:
-        print(f"\n❌ Teste falhou: {e}")
-        sys.exit(1)

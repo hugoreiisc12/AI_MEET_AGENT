@@ -18,7 +18,7 @@ Variáveis de ambiente:
     GOOGLE_CREDENTIALS_PATH=credentials.json  (padrão)
     GOOGLE_TOKEN_PATH=token.json              (padrão)
 """
-
+# Integração com Google Calendar API v3 para pré-carregar título e participante antes da reunião começar.
 from __future__ import annotations
 
 import json
@@ -32,15 +32,12 @@ from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Optional
 
-# from domain.interfaces.calendar_service import (  # Interfaces não implementadas
-#     ICalendarService,
-#     CalendarEvent,
-#     CalendarServiceError,
-# )
+from entities.calendar_event import ICalendarService, CalendarEvent, CalendarServiceError
 
 SCOPES = ["https://www.googleapis.com/auth/calendar.readonly"]
 
 
+# Implementação de ICalendarService usando Google Calendar API v3
 class GoogleCalendarService(ICalendarService):
     """
     Implementação de ICalendarService usando Google Calendar API v3.
@@ -97,14 +94,12 @@ class GoogleCalendarService(ICalendarService):
         )
 
         for event in events:
-            if code in event.meet_url:
+            if event.meet_url and code in event.meet_url:
                 return event
         return None
-
-    # ------------------------------------------------------------------
+    
     # Privados
-    # ------------------------------------------------------------------
-
+    # Funções auxiliares para autenticação, busca e parsing de eventos da API do Google Calendar
     def _get_service(self):
         """Carrega credenciais e retorna o serviço da API (lazy)."""
         if self._service:
