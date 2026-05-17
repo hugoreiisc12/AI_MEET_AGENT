@@ -1,5 +1,5 @@
-# Ponto de entrada do Meet Agent, que decide o modo de execução ( UI Streamlit ou teste via terminal)
 
+# Ponto de partida do Meet Agent, com opções para rodar a interface Streamlit
 import sys
 import os
 
@@ -9,26 +9,55 @@ main.py — Ponto de entrada do Meet Agent.
 Modos de uso:
   streamlit run main.py              → Interface web Streamlit
   python main.py --test <audio.wav>  → Teste via terminal (sem UI)
+  python main.py --api               → Sobe FastAPI via uvicorn
+  python main.py --worker            → Sobe Celery worker
 """
 
 # Garante que o root está no path independente de onde o script é chamado
 sys.path.insert(0, os.path.dirname(__file__))
 
-# Importações locais (após ajustar o path)
+
 def run_streamlit() -> None:
     """Sobe a interface Streamlit."""
     import subprocess
     subprocess.run(
         [
             sys.executable, "-m", "streamlit", "run",
-            "presentation/streamlit/app.py",
+            "presetation/streamlit/app.py",
             "--server.headless", "false",
         ],
         check=True,
     )
 
-# Teste via terminal, que executa o fluxo completo de transcrição, 
-# resumo e chat interativo, permitindo validação rápida sem UI
+
+def run_api() -> None:
+    """Sobe a FastAPI via uvicorn."""
+    import subprocess
+    subprocess.run(
+        [
+            sys.executable, "-m", "uvicorn",
+            "api.main:app",
+            "--host", "0.0.0.0",
+            "--port", "8000",
+        ],
+        check=True,
+    )
+
+
+def run_worker() -> None:
+    """Sobe o Celery worker."""
+    import subprocess
+    subprocess.run(
+        [
+            sys.executable, "-m", "celery",
+            "-A", "worker.tasks.celery_app",
+            "worker",
+            "--loglevel=info",
+        ],
+        check=True,
+    )
+
+
 def run_terminal_test(audio_path: str) -> None:
     """
     Executa o fluxo completo via terminal para validação rápida:
@@ -36,8 +65,6 @@ def run_terminal_test(audio_path: str) -> None:
       2. Gera o resumo
       3. Abre loop de chat interativo
     """
-
-# Importações locais necessárias para teste via terminal (após ajustar o path) 
     import uuid
     from datetime import datetime
     from entities.metting import Meeting
@@ -51,8 +78,6 @@ def run_terminal_test(audio_path: str) -> None:
     print("\n🎤 Meet Agent — Modo Terminal")
     print("=" * 50)
 
-    # 1. Transcrição do audio, que chama o processo de transcrição passando o caminho do Audio,
-    # e captura ativamente erros relacionados á transcrição
     print(f"\n[1/2] Transcrevendo: {audio_path}")
     t_result = container.transcribe_meeting.execute(
         TranscribeMeetingInput(audio_path=audio_path, with_diarization=True)
@@ -65,8 +90,6 @@ def run_terminal_test(audio_path: str) -> None:
     print(f"✅ Transcrição concluída — {transcript.duration_minutes:.1f} min")
     print(f"   Speakers: {transcript.speakers or ['Speaker 0']}")
 
-    # 2. Resumo da reunião, que chama o processo de summarização passando a reunião com transcrição anexada
-    # e captura ativamente erros relacionados a LLM
     meeting = Meeting(
         id=str(uuid.uuid4()),
         title=f"Reunião {datetime.now().strftime('%d/%m/%Y %H:%M')}",
@@ -86,11 +109,9 @@ def run_terminal_test(audio_path: str) -> None:
         sys.exit(1)
 
     meeting.summary = s_result.summary
-    summary = meeting.summary
     print("\n✅ Resumo gerado:\n")
-    print(summary.formatted)
+    print(meeting.summary.formatted)
 
-    # 3. Chat interativo com reunião que entra em loop de perguntas e respostas
     print("\n" + "=" * 50)
     print("💬 Chat ativo — pergunte sobre a reunião (ctrl+c para sair)\n")
     history = []
@@ -128,5 +149,9 @@ if __name__ == "__main__":
             print("Uso: python main.py --test <caminho_do_audio.wav>")
             sys.exit(1)
         run_terminal_test(sys.argv[idx + 1])
+    elif "--api" in sys.argv:
+        run_api()
+    elif "--worker" in sys.argv:
+        run_worker()
     else:
         run_streamlit()

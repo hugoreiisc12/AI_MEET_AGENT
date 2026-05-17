@@ -4,7 +4,7 @@ from datetime import datetime
 
 from fastapi import APIRouter, UploadFile, File, HTTPException
 
-from api.schemas.meeting import UploadResponse, MeetingStatusResponse, ProcessingStatus
+from api.meeting import UploadResponse, MeetingStatusResponse, ProcessingStatus
 from config.settings import get_settings
 from presetation.container import get_container
 
@@ -129,7 +129,7 @@ def _process_sync(meeting_id: str, audio_path: str, title: str) -> None:
 
 
 def _map_summary(summary):
-    from api.schemas.meeting import SummarySchema, TaskSchema, DecisionSchema
+    from api.meeting import SummarySchema, TaskSchema, DecisionSchema
     return SummarySchema(
         overview=summary.overview,
         topics=summary.topics,

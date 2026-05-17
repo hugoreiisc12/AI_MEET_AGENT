@@ -12,11 +12,12 @@ Endpoints:
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-from fastapi import FastAPI, UploadFile, File, HTTPException, Depends
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from config.settings import get_settings
-from api.routers import meetings, chat
+from api import meetings_2 as meetings
+from api import chat
 
 settings = get_settings()
 

@@ -1,5 +1,6 @@
 # Use case: sumariza reunião transcrita e gera resumo estruturado
 from dataclasses import dataclass
+from typing import Optional
 from entities.metting import Meeting, Summary
 from interface.llm_services import ILLMService, LLMServiceError
 
@@ -13,11 +14,10 @@ class SummarizeMeetingInput:
 # Dados de saída da sumarização
 @dataclass
 class SummarizeMeetingOutput:
-    success: bool  # Status da operação
-    summary: Summary = None  # Resumo gerado pela LLM
-    meeting: Meeting = None  # Meeting com summary anexado
-    error_message: str = "SUMMARIZATION FAILED"
-
+    success: bool
+    summary: Optional[Summary] = None      # ← adicione Optional
+    meeting: Optional[Meeting] = None      # ← adicione Optional
+    error_message: str = ""
 
 # Use case que recebe LLM service via injeção de dependência
 class SummarizeMeetingUC:

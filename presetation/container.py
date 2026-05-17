@@ -49,6 +49,7 @@ class CollabContainer:
     """
 
     def __init__(self) -> None:
+        import warnings
         settings = get_settings()
 
         if not settings.database_url:
@@ -60,6 +61,14 @@ class CollabContainer:
         # Infrastructure
         self._transcriber = WhisperTranscriber()
         self._llm = LangChainLLMService()
+
+        # TODO: substituir por PostgresMeetingRepository quando implementado.
+        # Atualmente usa JSON local mesmo em modo collab.
+        warnings.warn(
+            "CollabContainer está usando JsonMeetingRepository (armazenamento local). "
+            "Implemente PostgresMeetingRepository e substitua aqui para produção.",
+            stacklevel=2,
+        )
         self._repository = JsonMeetingRepository(settings.storage_path)
 
         # Use cases — idênticos ao SoloContainer

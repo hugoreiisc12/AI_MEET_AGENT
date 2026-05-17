@@ -17,7 +17,7 @@ class TranscribeMeetingInput:
 class TranscribeMeetingOutput:
     transcript: Transcript  # Transcrição processada
     success: bool  # Status da operação
-    error_message: str = "PROCESS FAILED"
+    error_message: str = ""
 
 
 # Use case que recebe transcritor via injeção de dependência

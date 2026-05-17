@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException
-from api.schemas.meeting import ChatRequest, ChatResponse
+from api.meeting import ChatRequest, ChatResponse
 from user_cases.chat_with_meeting import ChatWithMeetingInput
 from presetation.container import get_container
 
