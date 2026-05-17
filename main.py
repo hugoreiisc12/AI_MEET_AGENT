@@ -1,8 +1,3 @@
-
-# Ponto de partida do Meet Agent, com opções para rodar a interface Streamlit
-import sys
-import os
-
 """
 main.py — Ponto de entrada do Meet Agent.
 
@@ -11,7 +6,10 @@ Modos de uso:
   python main.py --test <audio.wav>  → Teste via terminal (sem UI)
   python main.py --api               → Sobe FastAPI via uvicorn
   python main.py --worker            → Sobe Celery worker
+  
 """
+import sys
+import os
 
 # Garante que o root está no path independente de onde o script é chamado
 sys.path.insert(0, os.path.dirname(__file__))

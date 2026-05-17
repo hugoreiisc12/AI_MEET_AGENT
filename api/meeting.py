@@ -15,8 +15,7 @@ class ProcessingStatus(str, Enum):
 class TaskSchema(BaseModel):
     description: str
     responsible: str
-    deadline: str
-    done: bool = False
+    deadline: Optional[str] = None
 
 
 class DecisionSchema(BaseModel):

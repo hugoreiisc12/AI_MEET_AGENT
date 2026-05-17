@@ -18,18 +18,12 @@ Variáveis de ambiente:
     GOOGLE_CREDENTIALS_PATH=credentials.json  (padrão)
     GOOGLE_TOKEN_PATH=token.json              (padrão)
 """
-# Integração com Google Calendar API v3 para pré-carregar título e participante antes da reunião começar.
 from __future__ import annotations
 
-import json
 import os
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
-from typing import Optional
-
-import os
-from datetime import datetime, timezone, timedelta
-from pathlib import Path
+from urllib.parse import urlparse
 from typing import Optional
 
 from entities.calendar_event import ICalendarService, CalendarEvent, CalendarServiceError
@@ -37,7 +31,6 @@ from entities.calendar_event import ICalendarService, CalendarEvent, CalendarSer
 SCOPES = ["https://www.googleapis.com/auth/calendar.readonly"]
 
 
-# Implementação de ICalendarService usando Google Calendar API v3
 class GoogleCalendarService(ICalendarService):
     """
     Implementação de ICalendarService usando Google Calendar API v3.
@@ -65,7 +58,6 @@ class GoogleCalendarService(ICalendarService):
             max_results=5,
         )
 
-        # Filtra apenas eventos com link do Meet
         meet_events = [e for e in events if e.meet_url]
         return meet_events[0] if meet_events else None
 
@@ -74,14 +66,15 @@ class GoogleCalendarService(ICalendarService):
         now = datetime.now(timezone.utc).isoformat()
         events = self._fetch_events(
             time_min=now,
-            max_results=limit * 2,  # busca mais para filtrar sem Meet
+            max_results=limit * 2,
         )
         return [e for e in events if e.meet_url][:limit]
 
     def find_by_meet_url(self, meet_url: str) -> Optional[CalendarEvent]:
         """Encontra evento pelo código da sala do Meet."""
-        # Extrai o código da URL (ex: abc-defg-hij)
-        code = meet_url.rstrip("/").split("/")[-1]
+        # Extrai o código da URL de forma segura, ignorando query strings
+        parsed = urlparse(meet_url)
+        code = parsed.path.rstrip("/").split("/")[-1]
 
         now = datetime.now(timezone.utc)
         window_start = (now - timedelta(hours=2)).isoformat()
@@ -97,9 +90,9 @@ class GoogleCalendarService(ICalendarService):
             if event.meet_url and code in event.meet_url:
                 return event
         return None
-    
-    # Privados
-    # Funções auxiliares para autenticação, busca e parsing de eventos da API do Google Calendar
+
+    # ── Privados ──────────────────────────────────────────────────────────
+
     def _get_service(self):
         """Carrega credenciais e retorna o serviço da API (lazy)."""
         if self._service:
@@ -168,25 +161,26 @@ class GoogleCalendarService(ICalendarService):
         except CalendarServiceError:
             raise
         except Exception as e:
+            if "quota" in str(e).lower() or "403" in str(e):
+                raise CalendarServiceError(
+                    "Quota da Google Calendar API excedida. Tente novamente em alguns minutos."
+                ) from e
             raise CalendarServiceError(f"Erro ao buscar eventos: {str(e)}") from e
 
     def _parse_event(self, item: dict) -> CalendarEvent:
         """Converte resposta da API em CalendarEvent."""
-        # Horários (podem ser datetime ou date)
         start_raw = item.get("start", {})
         end_raw   = item.get("end", {})
 
         start = self._parse_dt(start_raw.get("dateTime") or start_raw.get("date", ""))
         end   = self._parse_dt(end_raw.get("dateTime") or end_raw.get("date", ""))
 
-        # Participantes (emails)
         attendees = [
             a.get("email", "")
             for a in item.get("attendees", [])
-            if not a.get("self", False)  # exclui o próprio usuário
+            if not a.get("self", False)
         ]
 
-        # Link do Google Meet
         meet_url = ""
         entry_points = item.get("conferenceData", {}).get("entryPoints", [])
         for ep in entry_points:
@@ -209,10 +203,8 @@ class GoogleCalendarService(ICalendarService):
         if not value:
             return datetime.now(timezone.utc)
         try:
-            # Formato ISO com timezone
             if "T" in value:
                 return datetime.fromisoformat(value.replace("Z", "+00:00"))
-            # Formato date (all-day events)
             d = datetime.strptime(value, "%Y-%m-%d")
             return d.replace(tzinfo=timezone.utc)
         except ValueError:

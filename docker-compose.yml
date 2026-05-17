@@ -21,7 +21,7 @@ services:
       - "8501:8501"
     env_file: .env
     volumes:
-      - ./data:/app/data          # persiste reuniões e áudios entre restarts
+      - ./data:/app/data
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8501/_stcore/health"]
@@ -43,6 +43,8 @@ services:
       - ./data:/app/data
     depends_on:
       redis:
+        condition: service_healthy
+      postgres:
         condition: service_healthy
     restart: unless-stopped
     profiles: ["collab"]
@@ -66,7 +68,7 @@ services:
     restart: unless-stopped
     profiles: ["collab"]
     deploy:
-      replicas: 2             # 2 workers processam reuniões em paralelo
+      replicas: 2
 
   # ── Redis — broker do Celery ──────────────────────────────────────────
   redis:

@@ -6,11 +6,12 @@ from pathlib import Path
 from typing import Optional
 
 from entities.metting import Meeting, Summary, Task, Decision
+from repositores.metting_repor import IMeetingRepository
 from config.settings import get_settings
 
 
 # Repositório que persiste reuniões como arquivos JSON no disco
-class JsonMeetingRepository:
+class JsonMeetingRepository(IMeetingRepository):
     """Persistência local em JSON — modo solo."""
 
     def __init__(self, storage_path: str | None = None) -> None:
@@ -81,7 +82,7 @@ class JsonMeetingRepository:
                 topics=s.get("topics", []),
                 created_at=datetime.fromisoformat(s.get("created_at", datetime.now().isoformat())),
                 tasks=[Task(t["description"], t.get("responsible", "Não definido"),
-                            t.get("deadline", "Não definido"), t.get("done", False))
+                            t.get("deadline", None), t.get("done", False))
                        for t in s.get("tasks", [])],
                 decisions=[Decision(d["description"], d.get("context", ""))
                            for d in s.get("decisions", [])],

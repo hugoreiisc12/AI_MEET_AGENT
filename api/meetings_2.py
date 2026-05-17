@@ -11,8 +11,28 @@ from presetation.container import get_container
 router = APIRouter()
 settings = get_settings()
 
-# Estado em memória para status (em prod: Redis)
+# Estado em memória para status — usado apenas em modo solo
 _status_store: dict[str, ProcessingStatus] = {}
+
+
+def _set_status(meeting_id: str, status: ProcessingStatus) -> None:
+    """Persiste status no Redis (collab) ou em memória (solo)."""
+    if settings.is_collab:
+        import redis as redis_client
+        r = redis_client.from_url(settings.redis_url)
+        r.set(f"status:{meeting_id}", status.value, ex=86400)
+    else:
+        _status_store[meeting_id] = status
+
+
+def _get_status(meeting_id: str) -> ProcessingStatus | None:
+    """Lê status do Redis (collab) ou da memória (solo)."""
+    if settings.is_collab:
+        import redis as redis_client
+        r = redis_client.from_url(settings.redis_url)
+        val = r.get(f"status:{meeting_id}")
+        return ProcessingStatus(val.decode()) if val else None
+    return _status_store.get(meeting_id)
 
 
 @router.post("/upload", response_model=UploadResponse)
@@ -31,7 +51,7 @@ async def upload_meeting(
     with open(audio_path, "wb") as f:
         f.write(await file.read())
 
-    _status_store[meeting_id] = ProcessingStatus.PENDING
+    _set_status(meeting_id, ProcessingStatus.PENDING)
 
     # Modo collab → enfileira no Celery
     # Modo solo → processa direto (bloqueante, mas simples)
@@ -43,7 +63,7 @@ async def upload_meeting(
 
     return UploadResponse(
         meeting_id=meeting_id,
-        status=_status_store[meeting_id],
+        status=_get_status(meeting_id),
         message="Áudio recebido. Processamento iniciado.",
     )
 
@@ -55,7 +75,7 @@ def get_status(meeting_id: str):
     meeting = container.repository.find_by_id(meeting_id)
 
     if not meeting:
-        status = _status_store.get(meeting_id)
+        status = _get_status(meeting_id)
         if not status:
             raise HTTPException(404, "Reunião não encontrada")
         return MeetingStatusResponse(
@@ -100,13 +120,13 @@ def _process_sync(meeting_id: str, audio_path: str, title: str) -> None:
     from user_cases.summarize_metting import SummarizeMeetingInput
 
     container = get_container()
-    _status_store[meeting_id] = ProcessingStatus.TRANSCRIBING
+    _set_status(meeting_id, ProcessingStatus.TRANSCRIBING)
 
     t_result = container.transcribe_meeting.execute(
         TranscribeMeetingInput(audio_path=audio_path, with_diarization=True)
     )
     if not t_result.success:
-        _status_store[meeting_id] = ProcessingStatus.ERROR
+        _set_status(meeting_id, ProcessingStatus.ERROR)
         return
 
     meeting = Meeting(
@@ -119,12 +139,13 @@ def _process_sync(meeting_id: str, audio_path: str, title: str) -> None:
         duration_minutes=t_result.transcript.duration_minutes,
     )
 
-    _status_store[meeting_id] = ProcessingStatus.SUMMARIZING
+    _set_status(meeting_id, ProcessingStatus.SUMMARIZING)
     s_result = container.summarize_meeting.execute(
         SummarizeMeetingInput(meeting=meeting)
     )
-    _status_store[meeting_id] = (
-        ProcessingStatus.DONE if s_result.success else ProcessingStatus.ERROR
+    _set_status(
+        meeting_id,
+        ProcessingStatus.DONE if s_result.success else ProcessingStatus.ERROR,
     )
 
 

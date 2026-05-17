@@ -1,7 +1,7 @@
 """Entidades e interfaces para integração com Google Calendar."""
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Optional
 
@@ -9,17 +9,13 @@ from typing import Optional
 @dataclass
 class CalendarEvent:
     """Representa um evento do Google Calendar."""
-    id: str  # ID único do evento no Google Calendar
-    title: str  # Título do evento
-    start: datetime  # Início do evento
-    end: datetime  # Fim do evento
-    participants: list[str] = None  # Lista de emails dos participantes
-    meet_url: Optional[str] = None  # URL do Google Meet, se houver
-    description: str = ""  # Descrição do evento
-
-    def __post_init__(self):
-        if self.participants is None:
-            self.participants = []
+    id: str
+    title: str
+    start: datetime
+    end: datetime
+    participants: list[str] = field(default_factory=list)
+    meet_url: Optional[str] = None
+    description: str = ""
 
 
 class CalendarServiceError(Exception):

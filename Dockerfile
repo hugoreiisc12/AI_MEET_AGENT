@@ -8,8 +8,8 @@ ENV PYTHONDONTWRITEBYTECODE=1
 
 # ── Dependências de sistema ───────────────────────────────────────────────
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ffmpeg \          
-    libsndfile1 \     
+    ffmpeg \
+    libsndfile1 \
     curl \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
@@ -19,8 +19,7 @@ WORKDIR /app
 
 # ── Dependências Python ───────────────────────────────────────────────────
 COPY requirements.txt requirements-collab.txt ./
-RUN pip install --no-cache-dir -r requirements.txt
-
+RUN pip install --no-cache-dir -r requirements.txt -r requirements-collab.txt
 # ── Código da aplicação ───────────────────────────────────────────────────
 COPY . .
 
