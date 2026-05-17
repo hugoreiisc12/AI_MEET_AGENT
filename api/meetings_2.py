@@ -6,7 +6,7 @@ from fastapi import APIRouter, UploadFile, File, HTTPException
 
 from api.schemas.meeting import UploadResponse, MeetingStatusResponse, ProcessingStatus
 from config.settings import get_settings
-from presentation.container import get_container
+from presetation.container import get_container
 
 router = APIRouter()
 settings = get_settings()
@@ -95,9 +95,9 @@ def list_meetings():
 
 def _process_sync(meeting_id: str, audio_path: str, title: str) -> None:
     """Processamento síncrono — modo solo."""
-    from domain.entities.meeting import Meeting
-    from use_cases.transcribe_meeting import TranscribeMeetingInput
-    from use_cases.summarize_meeting import SummarizeMeetingInput
+    from entities.metting import Meeting
+    from user_cases.transcribe_meeting import TranscribeMeetingInput
+    from user_cases.summarize_metting import SummarizeMeetingInput
 
     container = get_container()
     _status_store[meeting_id] = ProcessingStatus.TRANSCRIBING

@@ -1,7 +1,8 @@
 # Implementação de LLM service usando LangChain + OpenAI para processamento de reuniões
 import json
 from langchain_openai import ChatOpenAI
-from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
+from langchain_core.messages import HumanMessage, SystemMessage, AIMessage, BaseMessage
+from pydantic import SecretStr
 
 from entities.metting import Summary, Task, Decision
 from interface.llm_services import ILLMService, LLMServiceError
@@ -59,7 +60,7 @@ class LangChainLLMService(ILLMService):
         settings = get_settings()
         self._llm = llm or ChatOpenAI(
             model=settings.openai_model,
-            api_key=settings.openai_api_key,
+            api_key=SecretStr(settings.openai_api_key),
             temperature=0.2,  # Baixo para respostas consistentes
         )
         self._current_transcript: str = ""
@@ -68,12 +69,13 @@ class LangChainLLMService(ILLMService):
     def summarize(self, transcript: str) -> Summary:
         """Analisa transcrição e retorna Summary com tópicos, tarefas, decisões."""
         try:
-            messages = [
+            messages: list[BaseMessage] = [
                 SystemMessage(content=SUMMARIZE_SYSTEM_PROMPT),
                 HumanMessage(content=f"Transcrição:\n{transcript}"),
             ]
-            response = self._llm(messages)
-            return self._parse_summary(response.content)
+            response = self._llm.invoke(messages)
+            content = response.content if isinstance(response.content, str) else str(response.content)
+            return self._parse_summary(content)
         except Exception as e:
             raise LLMServiceError(f"Falha na sumarização: {str(e)}") from e
 
@@ -82,7 +84,7 @@ class LangChainLLMService(ILLMService):
         """Responde pergunta sobre reunião mantendo contexto de conversa."""
         try:
             # Monta mensagens: system com transcrição + histórico + pergunta
-            messages = [
+            messages: list[BaseMessage] = [
                 SystemMessage(content=CHAT_SYSTEM_PROMPT.format(transcript=context))
             ]
             for turn in history:
@@ -92,8 +94,9 @@ class LangChainLLMService(ILLMService):
                     messages.append(AIMessage(content=turn["content"]))
             messages.append(HumanMessage(content=question))
 
-            response = self._llm(messages)
-            return response.content
+            response = self._llm.invoke(messages)
+            content = response.content if isinstance(response.content, str) else str(response.content)
+            return content
 
         except Exception as e:
             raise LLMServiceError(f"Falha no chat: {str(e)}") from e

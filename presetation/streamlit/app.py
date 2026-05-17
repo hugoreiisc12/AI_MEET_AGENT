@@ -20,14 +20,30 @@ from user_cases.transcribe_meeting import TranscribeMeetingInput
 from user_cases.summarize_metting import SummarizeMeetingInput
 from user_cases.chat_with_meeting import ChatWithMeetingInput
 
+# Import requests para upload em modo colaborativo
+try:
+    import requests
+    HAS_REQUESTS = True
+except ImportError:
+    HAS_REQUESTS = False
+
 settings = get_settings()
-container = get_container()
+
+@st.cache_resource
+def get_app_container():
+    """Carrega container uma única vez usando cache."""
+    return get_container()
+
+container = get_app_container()
 
 st.set_page_config(page_title="Meet Agent", page_icon="🎤", layout="wide")
 
 # ── Session state ─────────────────────────────────────────────────────────
 
+MAX_CHAT_HISTORY = 50  # Limite para evitar consumo excessivo de memória
+
 def _init():
+    """Inicializa valores padrão do session state."""
     defaults = {
         "meeting": None,
         "chat_history": [],
@@ -41,26 +57,36 @@ _init()
 
 # ── Sidebar ───────────────────────────────────────────────────────────────
 
-with st.sidebar:
-    st.title("🎤 Meet Agent")
-    badge = "Solo" if settings.is_solo else "Colaborativo"
-    st.caption(f"Modo: **{badge}**")
-    st.divider()
-
-    st.subheader("Reuniões salvas")
-    for m in container.repository.list_all():
-        label = m.title[:30] + ("..." if len(m.title) > 30 else "")
-        if st.button(f"📋 {label}", key=f"load_{m.id}", use_container_width=True):
-            st.session_state.meeting = m
-            st.session_state.chat_history = []
-            st.rerun()
-
-    if st.session_state.meeting:
+def _render_sidebar():
+    """Renderiza barra lateral com reuniões salvas."""
+    with st.sidebar:
+        st.title("🎤 Meet Agent")
+        badge = "Solo" if settings.is_solo else "Colaborativo"
+        st.caption(f"Modo: **{badge}**")
         st.divider()
-        if st.button("✖ Limpar sessão", use_container_width=True):
-            st.session_state.meeting = None
-            st.session_state.chat_history = []
-            st.rerun()
+
+        st.subheader("Reuniões salvas")
+        try:
+            meetings = container.repository.list_all()
+        except Exception as e:
+            st.error(f"Erro ao carregar reuniões: {str(e)}")
+            meetings = []
+
+        for m in meetings:
+            label = m.title[:30] + ("..." if len(m.title) > 30 else "")
+            if st.button(f"📋 {label}", key=f"load_{m.id}", use_container_width=True):
+                st.session_state.meeting = m
+                st.session_state.chat_history = []
+                st.rerun()
+
+        if st.session_state.meeting:
+            st.divider()
+            if st.button("✖ Limpar sessão", use_container_width=True):
+                st.session_state.meeting = None
+                st.session_state.chat_history = []
+                st.rerun()
+
+_render_sidebar()
 
 # ── Tela principal ────────────────────────────────────────────────────────
 
@@ -78,6 +104,10 @@ if st.session_state.meeting is None:
         use_diarization = st.toggle("Identificar speakers", value=True)
 
         if st.button("🚀 Processar", disabled=not (title and audio_file), type="primary"):
+            if not audio_file:
+                st.error("Selecione um arquivo de áudio")
+                st.stop()
+            
             audio_dir = Path(settings.audio_storage_path)
             audio_dir.mkdir(parents=True, exist_ok=True)
             suffix = Path(audio_file.name).suffix
@@ -111,7 +141,9 @@ if st.session_state.meeting is None:
                 st.error(s.error_message)
                 st.stop()
 
-            st.session_state.meeting = s.meeting
+            # O resumo foi gerado e anexado à reunião pelo use case
+            meeting.summary = s.summary
+            st.session_state.meeting = meeting
             st.session_state.chat_history = []
             st.rerun()
 
@@ -130,8 +162,8 @@ if st.session_state.meeting is None:
         )
 
         if st.button("Entrar", disabled=not meeting_id, type="primary"):
-            meeting = container.repository.find_by_id(meeting_id.strip())
-            if not meeting:
+            meeting = container.repository.find_by_id(meeting_id.strip())  # type: ignore
+            if meeting is None:
                 st.warning("Reunião não encontrada ou ainda em processamento. Aguarde.")
             else:
                 st.session_state.meeting = meeting
@@ -139,21 +171,27 @@ if st.session_state.meeting is None:
                 st.rerun()
 
         # Também permite upload manual em modo collab (fallback)
-        with st.expander("Upload manual (fallback sem extensão Chrome)"):
-            import requests
-            f = st.file_uploader("Áudio", type=["wav", "mp3", "m4a", "webm"])
-            t2 = st.text_input("Título da reunião")
-            if st.button("Enviar para servidor") and f and t2:
-                r = requests.post(
-                    f"http://{settings.api_host}:{settings.api_port}/meetings/upload",
-                    files={"file": (f.name, f.read(), f.type)},
-                    data={"title": t2},
-                )
-                if r.ok:
-                    data = r.json()
-                    st.success(f"ID da sala: `{data['meeting_id']}`")
-                else:
-                    st.error("Erro no upload")
+        if HAS_REQUESTS:
+            with st.expander("Upload manual (fallback sem extensão Chrome)"):
+                f = st.file_uploader("Áudio", type=["wav", "mp3", "m4a", "webm"])
+                t2 = st.text_input("Título da reunião")
+                if st.button("Enviar para servidor") and f and t2:
+                    try:
+                        r = requests.post(  # type: ignore
+                            f"http://{settings.api_host}:{settings.api_port}/meetings/upload",
+                            files={"file": (f.name, f.read(), f.type)},
+                            data={"title": t2},
+                            timeout=30,
+                        )
+                        if r.ok:
+                            data = r.json()
+                            st.success(f"ID da sala: `{data['meeting_id']}`")
+                        else:
+                            st.error(f"Erro no upload: {r.status_code}")
+                    except Exception as e:
+                        st.error(f"Erro ao conectar ao servidor: {str(e)}")
+        else:
+            st.warning("Biblioteca 'requests' não instalada. Upload indisponível.")
 
 # ── Dashboard ─────────────────────────────────────────────────────────────
 
@@ -162,7 +200,9 @@ else:
     summary = meeting.summary
 
     st.subheader(f"📋 {meeting.title}")
-    st.caption(meeting.started_at.strftime("%-d de %B de %Y às %H:%M"))
+    # Formatar data compatível com Windows, Linux e Mac
+    date_str = meeting.started_at.strftime("%d de %B de %Y às %H:%M").lstrip("0")
+    st.caption(date_str)
 
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("⏱ Duração", f"{meeting.duration_minutes:.0f} min")
@@ -185,12 +225,14 @@ else:
 
             if summary.tasks:
                 st.markdown("### Tarefas")
-                for task in summary.tasks:
-                    done = st.checkbox(
+                st.info("📝 Nota: Mudanças em tarefas não são persistidas nesta versão.")
+                for idx, task in enumerate(summary.tasks):
+                    st.checkbox(
                         f"**{task.description}**  \n*{task.responsible}* · {task.deadline}",
-                        value=task.done, key=f"task_{id(task)}"
+                        value=task.done,
+                        key=f"task_{idx}_{task.description[:10]}",
+                        disabled=True,
                     )
-                    task.done = done
 
             if summary.decisions:
                 st.markdown("### Decisões")
@@ -209,16 +251,27 @@ else:
                     st.write(msg["content"])
 
         if question := st.chat_input("Ex: Quem ficou com a tarefa X?"):
+            # Limitar histórico para evitar consumo excessivo de memória
+            if len(st.session_state.chat_history) >= MAX_CHAT_HISTORY:
+                st.session_state.chat_history = st.session_state.chat_history[-MAX_CHAT_HISTORY:]
+
             st.session_state.chat_history.append({"role": "user", "content": question})
+            
             with st.spinner("Pensando..."):
-                result = container.chat_with_meeting.execute(
-                    ChatWithMeetingInput(
-                        meeting=meeting,
-                        question=question,
-                        history=st.session_state.chat_history[:-1],
+                try:
+                    result = container.chat_with_meeting.execute(
+                        ChatWithMeetingInput(
+                            meeting=meeting,
+                            question=question,
+                            history=st.session_state.chat_history[:-1],
+                        )
                     )
-                )
-            answer = result.answer if result.success else f"⚠️ {result.error_message}"
+                    answer = result.answer if result.success else f"⚠️ {result.error_message}"
+                except Exception as e:
+                    st.error(f"Erro no chat: {str(e)}")
+                    st.session_state.chat_history.pop()  # Remove a pergunta que causou erro
+                    st.stop()
+            
             st.session_state.chat_history.append({"role": "assistant", "content": answer})
             st.rerun()
 

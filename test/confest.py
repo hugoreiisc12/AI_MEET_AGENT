@@ -17,12 +17,12 @@ arquivo de teste sem precisar importar.
 # Garante que o root do projeto está no path
 sys.path.insert(0, os.path.dirname(__file__))
 
-from domain.entities.transcript import Transcript, Segment
-from domain.entities.meeting import Meeting, Summary, Task, Decision
-from domain.entities.audio_recording import AudioRecording, RecordingStatus
-from domain.interfaces.transcriber import ITranscriber
-from domain.interfaces.llm_service import ILLMService
-from domain.interfaces.recorder import IRecorder
+from entities.transcript import Transcript, Segment
+from entities.metting import Meeting, Summary, Task, Decision
+# from domain.entities.audio_recording import AudioRecording, RecordingStatus  # Não existe
+from interface.transcriber import ITranscriber
+from interface.llm_services import ILLMService
+# from domain.interfaces.recorder import IRecorder  # Não existe
 
 # Fixtures de entidades
 # Criando fixtures de entidades com dados realista para testar o fluxo completo 
@@ -114,7 +114,7 @@ def mock_transcriber(sample_transcript) -> ITranscriber:
 @pytest.fixture
 def mock_transcriber_error() -> ITranscriber:
     """Transcritor que sempre lança erro."""
-    from domain.interfaces.transcriber import TranscriptionError
+    from interface.transcriber import TranscriptionError
     transcriber = MagicMock(spec=ITranscriber)
     transcriber.transcribe.side_effect = TranscriptionError("API indisponível")
     transcriber.transcribe_with_diarization.side_effect = TranscriptionError("API indisponível")
@@ -133,7 +133,7 @@ def mock_llm_service(sample_summary) -> ILLMService:
 @pytest.fixture
 def mock_llm_service_error() -> ILLMService:
     """LLM que sempre lança erro."""
-    from domain.interfaces.llm_service import LLMServiceError
+    from interface.llm_services import LLMServiceError
     llm = MagicMock(spec=ILLMService)
     llm.summarize.side_effect = LLMServiceError("LLM indisponível")
     llm.chat.side_effect = LLMServiceError("LLM indisponível")
@@ -174,7 +174,7 @@ def mock_recorder() -> IRecorder:
 @pytest.fixture
 def mock_repository(sample_meeting) -> MagicMock:
     """Repositório em memória para testes."""
-    from domain.repositories.meeting_repository import IMeetingRepository
+    from repositores.metting_repor import IMeetingRepository
     repo = MagicMock(spec=IMeetingRepository)
     _store = {}
 

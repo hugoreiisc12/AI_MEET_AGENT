@@ -10,8 +10,8 @@ Para usar:
 """
 
 from typing import Optional
-from domain.entities.meeting import Meeting
-from domain.repositories.meeting_repository import IMeetingRepository
+from entities.metting import Meeting
+from repositores.metting_repor import IMeetingRepository
 
 
 class PostgresMeetingRepository(IMeetingRepository):

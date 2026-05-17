@@ -17,10 +17,10 @@ class WhisperTranscriber(ITranscriber):
       - Converter resposta da API nas entities do domain
       - Nunca deixar exceções da OpenAI vazarem para fora (encapsula em TranscriptionError)
     """
- # Definindo os formatos de audio suportados para o construtor do transcritor
-    SUPPORTED_FORMATS = {".wav", ".mp3", ".mp4", ".m4a", ".webm", ".ogg", ".flac"}
+    # Definindo os formatos de audio suportados para o construtor do transcritor
+    SUPPORTED_FORMATS = {".": ".wav", ".mp3", ".mp4", ".m4a", ".webm", ".ogg", ".flac"}
 
-# Recebe o cliente OpenAI via injeção de dependência, ou cria um novo se não for fornecido
+    # Recebe o cliente OpenAI via injeção de dependência, ou cria um novo se não for fornecido
     def __init__(self, client: OpenAI | None = None) -> None:
         settings = get_settings()
         self._client = client or OpenAI(api_key=settings.openai_api_key)
@@ -28,8 +28,8 @@ class WhisperTranscriber(ITranscriber):
         self._language = settings.whisper_language
         self._max_size_bytes = settings.max_audio_size_mb * 1024 * 1024
 
-# Interface pública (implementa ITranscriber)
-# Transcrição simples sem diarização ( sem identificar falantes )
+    # Interface pública (implementa ITranscriber)
+    # Transcrição simples sem diarização (sem identificar falantes)
     def transcribe(self, audio_path: str) -> Transcript:
         """
         Transcrição simples — retorna texto contínuo sem identificar speakers.
@@ -51,7 +51,8 @@ class WhisperTranscriber(ITranscriber):
 
         except Exception as e:
             raise TranscriptionError(f"Whisper API falhou: {str(e)}") from e
-# Transcrição com diarização ( identifica quem esta falando em cada momento )
+
+    # Transcrição com diarização (identifica quem está falando em cada momento)
     def transcribe_with_diarization(self, audio_path: str) -> Transcript:
         """
         Transcrição com timestamps por segmento.
@@ -80,8 +81,8 @@ class WhisperTranscriber(ITranscriber):
         except Exception as e:
             raise TranscriptionError(f"Whisper API falhou: {str(e)}") from e
 
- # Métodos privados (detalhes de implementação)
- # Validação do arquivo de aúdio e tratamento de erros específicos do arquivo
+    # Métodos privados (detalhes de implementação)
+    # Validação do arquivo de áudio e tratamento de erros específicos do arquivo
     def _validate_file(self, audio_path: str) -> None:
         path = Path(audio_path)
 
@@ -102,7 +103,8 @@ class WhisperTranscriber(ITranscriber):
                 f"Máximo permitido pela API: {self._max_size_bytes // 1024 // 1024}MB. "
                 "Considere dividir o áudio em partes."
             )
-# Conversão de resposta bruta da API na entity Transcript do domain, com tratamento de segmentos e metadados
+
+    # Conversão de resposta bruta da API na entity Transcript do domain
     def _build_transcript(
         self,
         response,
@@ -130,7 +132,8 @@ class WhisperTranscriber(ITranscriber):
             language=response.language or self._language,
             audio_path=audio_path,
         )
-# Heurística simples para simular diarização: detecta mudança de speaker por pause entre segmentos
+
+    # Heurística simples para simular diarização: detecta mudança de speaker por pause
     def _apply_pseudo_diarization(self, transcript: Transcript) -> Transcript:
         """
         Heurística simples: detecta mudança de speaker por pausa entre segmentos.

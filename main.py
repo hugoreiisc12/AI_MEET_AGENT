@@ -40,19 +40,19 @@ def run_terminal_test(audio_path: str) -> None:
 # Importações locais necessárias para teste via terminal (após ajustar o path) 
     import uuid
     from datetime import datetime
-    from domain.entities.meeting import Meeting
-    from presentation.container import get_container
-    from use_cases.transcribe_meeting import TranscribeMeetingInput
-    from use_cases.summarize_meeting import SummarizeMeetingInput
-    from use_cases.chat_with_meeting import ChatWithMeetingInput
+    from entities.metting import Meeting
+    from presetation.container import get_container
+    from user_cases.transcribe_meeting import TranscribeMeetingInput
+    from user_cases.summarize_metting import SummarizeMeetingInput
+    from user_cases.chat_with_meeting import ChatWithMeetingInput
 
     container = get_container()
 
     print("\n🎤 Meet Agent — Modo Terminal")
     print("=" * 50)
 
- # 1. Transcrição do audio, que chama o processo de transcrição passando o caminho do Audio, 
- # e captura ativamente erros relacionados á transcrição
+    # 1. Transcrição do audio, que chama o processo de transcrição passando o caminho do Audio,
+    # e captura ativamente erros relacionados á transcrição
     print(f"\n[1/2] Transcrevendo: {audio_path}")
     t_result = container.transcribe_meeting.execute(
         TranscribeMeetingInput(audio_path=audio_path, with_diarization=True)
@@ -65,8 +65,8 @@ def run_terminal_test(audio_path: str) -> None:
     print(f"✅ Transcrição concluída — {transcript.duration_minutes:.1f} min")
     print(f"   Speakers: {transcript.speakers or ['Speaker 0']}")
 
- # 2. Resumo da reunião, que chama o processo de summarização passando a reunião com transcrição anexada 
- # e captura ativamente erros relacionados a LLM 
+    # 2. Resumo da reunião, que chama o processo de summarização passando a reunião com transcrição anexada
+    # e captura ativamente erros relacionados a LLM
     meeting = Meeting(
         id=str(uuid.uuid4()),
         title=f"Reunião {datetime.now().strftime('%d/%m/%Y %H:%M')}",
@@ -85,12 +85,12 @@ def run_terminal_test(audio_path: str) -> None:
         print(f"❌ Erro: {s_result.error_message}")
         sys.exit(1)
 
-    meeting = s_result.meeting
+    meeting.summary = s_result.summary
     summary = meeting.summary
     print("\n✅ Resumo gerado:\n")
     print(summary.formatted)
 
-# 3. Chat interativo com reunião que entra em logo de perguntas e respostas a partir do contexto da reunião e do historico de conversa, permitindo ao usuario fazer perguntas sobre a reuninão e obter respostas do LLM
+    # 3. Chat interativo com reunião que entra em loop de perguntas e respostas
     print("\n" + "=" * 50)
     print("💬 Chat ativo — pergunte sobre a reunião (ctrl+c para sair)\n")
     history = []
