@@ -5,8 +5,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-from entities.metting import Meeting, Summary, Task, Decision
-from repositores.metting_repor import IMeetingRepository
+from entities.meeting import Meeting, Summary, Task, Decision
+from repositories.meeting_repository import IMeetingRepository
 from config.settings import get_settings
 
 

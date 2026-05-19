@@ -15,7 +15,7 @@ from pathlib import Path
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../../.."))
 
-from entities.metting import Meeting, Summary, Task, Decision
+from entities.meeting import Meeting, Summary, Task, Decision
 from entities.meeting_type import MeetingType
 
 
@@ -55,9 +55,9 @@ def meeting_no_summary():
 # Testes de process_audio
 def test_retorna_meeting_com_sucesso(mock_transcriber, mock_llm_service, sample_meeting, tmp_path):
     """ process_audio deve retornar Meeting quando transcrição e resumo funcionam """
-    from user_cases.transcribe_meeting import TranscribeMeetingUC, TranscribeMeetingInput
-    from user_cases.summarize_metting import SummarizeMeetingUC, SummarizeMeetingInput
-    from infraestrutura.json_meeting_repor import JsonMeetingRepository
+    from use_cases.transcribe_meeting import TranscribeMeetingUC, TranscribeMeetingInput
+    from use_cases.summarize_meeting import SummarizeMeetingUC, SummarizeMeetingInput
+    from infrastructure.json_meeting_repor import JsonMeetingRepository
 
     audio_path = str(tmp_path / "audio.wav")
     Path(audio_path).write_bytes(b"fake")
@@ -89,7 +89,7 @@ def test_retorna_meeting_com_sucesso(mock_transcriber, mock_llm_service, sample_
     assert s.success
 
 def test_falha_na_transcricao_retorna_none(mock_transcriber_error, tmp_path):
-    from user_cases.transcribe_meeting import TranscribeMeetingUC, TranscribeMeetingInput
+    from use_cases.transcribe_meeting import TranscribeMeetingUC, TranscribeMeetingInput
 
     audio_path = str(tmp_path / "audio.wav")
     Path(audio_path).write_bytes(b"fake")
@@ -100,7 +100,7 @@ def test_falha_na_transcricao_retorna_none(mock_transcriber_error, tmp_path):
     assert result.error_message != ""
 
 def test_falha_no_resumo_retorna_none(mock_transcriber, mock_llm_service_error, sample_meeting):
-    from user_cases.summarize_metting import SummarizeMeetingUC, SummarizeMeetingInput
+    from use_cases.summarize_meeting import SummarizeMeetingUC, SummarizeMeetingInput
 
     uc = SummarizeMeetingUC(llm_service=mock_llm_service_error)
     result = uc.execute(SummarizeMeetingInput(meeting=sample_meeting))
@@ -112,7 +112,7 @@ def test_falha_no_resumo_retorna_none(mock_transcriber, mock_llm_service_error, 
 class TestSaveTaskState:
 
     def test_persiste_tarefa_concluida(self, sample_meeting, tmp_path):
-        from infraestrutura.json_meeting_repor import JsonMeetingRepository
+        from infrastructure.json_meeting_repor import JsonMeetingRepository
 
         repo = JsonMeetingRepository(storage_path=str(tmp_path / "meetings"))
         sample_meeting.summary.tasks[0].done = True

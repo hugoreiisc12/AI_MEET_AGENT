@@ -8,7 +8,7 @@ e como base para os outros exporters.
 
 from pathlib import Path
 from datetime import datetime
-from entities.metting import Meeting
+from entities.meeting import Meeting
 from exporter import IExporter, ExportError
 
 

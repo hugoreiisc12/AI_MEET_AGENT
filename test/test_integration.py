@@ -1,12 +1,12 @@
 # Testes de integração completa
 import pytest
 from pathlib import Path
-from entities.metting import Meeting, Summary
-from user_cases.transcribe_meeting import TranscribeMeetingUC, TranscribeMeetingInput
-from user_cases.summarize_metting import SummarizeMeetingUC, SummarizeMeetingInput
-from user_cases.chat_with_meeting import ChatWithMeetingUC, ChatWithMeetingInput
+from entities.meeting import Meeting, Summary
+from use_cases.transcribe_meeting import TranscribeMeetingUC, TranscribeMeetingInput
+from use_cases.summarize_meeting import SummarizeMeetingUC, SummarizeMeetingInput
+from use_cases.chat_with_meeting import ChatWithMeetingUC, ChatWithMeetingInput
 from entities.transcript import Transcript, Segment
-from infraestrutura.json_meeting_repor import JsonMeetingRepository
+from infrastructure.json_meeting_repository import JsonMeetingRepository
 from datetime import datetime
 import tempfile
 import json
@@ -31,7 +31,7 @@ class MockTranscriber:
 class MockLLMService:
     """Mock de LLM service para testes"""
     def summarize(self, transcript: str) -> Summary:
-        from entities.metting import Task, Decision
+        from entities.meeting import Task, Decision
         return Summary(
             overview="Reunião de planejamento onde foram definidas tarefas de onboarding e QA.",
             topics=["Onboarding", "QA", "Roadmap"],
@@ -221,7 +221,7 @@ class TestDataConsistency:
     def test_summary_tasks_format(self):
         """Testa formato consistente das tarefas"""
         
-        from entities.metting import Task
+        from entities.meeting import Task
         
         summary = Summary(tasks=[
             Task(description="Task 1", responsible="Person A", deadline="01/01"),
@@ -256,7 +256,7 @@ class TestDataConsistency:
     def test_summary_preservation_after_save(self):
         """Testa se summary é preservado após salvar e carregar"""
         
-        from entities.metting import Task, Decision
+        from entities.meeting import Task, Decision
         
         original_summary = Summary(
             overview="Teste",
@@ -291,7 +291,7 @@ class TestErrorRecovery:
     def test_partial_processing_recovery(self):
         """Testa se continua mesmo se partes falharem"""
         
-        from infraestrutura.trasncriber.whisper_transcriber import WhisperTranscriber
+        from infrastructure.transcriber.whisper_transcriber import WhisperTranscriber
         
         transcriber = WhisperTranscriber()  # Transcriber real, não mock
         uc = TranscribeMeetingUC(transcriber)

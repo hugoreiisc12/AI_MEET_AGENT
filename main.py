@@ -65,11 +65,11 @@ def run_terminal_test(audio_path: str) -> None:
     """
     import uuid
     from datetime import datetime
-    from entities.metting import Meeting
-    from presetation.container import get_container
-    from user_cases.transcribe_meeting import TranscribeMeetingInput
-    from user_cases.summarize_metting import SummarizeMeetingInput
-    from user_cases.chat_with_meeting import ChatWithMeetingInput
+    from entities.meeting import Meeting
+    from presentation.container import get_container
+    from use_cases.transcribe_meeting import TranscribeMeetingInput
+    from use_cases.summarize_meeting import SummarizeMeetingInput
+    from use_cases.chat_with_meeting import ChatWithMeetingInput
 
     container = get_container()
 

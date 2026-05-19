@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from entities.metting import Meeting
+from entities.meeting import Meeting
 from entities.sentiment_result import SentimentResult
 from llm.langchain_llm_service import LLMServiceError
 from sentiment_analyze import SentimentAnalyzer

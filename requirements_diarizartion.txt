@@ -1,0 +1,5 @@
+pyaudio>=0.2.14
+pydub>=0.25
+webrtcvad>=2.0.10
+pyannote.audio>=3.1
+torch>=2.0

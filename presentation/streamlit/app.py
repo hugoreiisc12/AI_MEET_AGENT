@@ -14,11 +14,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import streamlit as st
 from config.settings import get_settings, AppMode
-from presetation.container import get_container
-from entities.metting import Meeting
-from user_cases.transcribe_meeting import TranscribeMeetingInput
-from user_cases.summarize_metting import SummarizeMeetingInput
-from user_cases.chat_with_meeting import ChatWithMeetingInput
+from presentation.container import get_container
+from entities.meeting import Meeting
+from use_cases.transcribe_meeting import TranscribeMeetingInput
+from use_cases.summarize_meeting import SummarizeMeetingInput
+from use_cases.chat_with_meeting import ChatWithMeetingInput
 
 # Import requests para upload em modo colaborativo
 try:

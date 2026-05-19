@@ -14,8 +14,8 @@ import os
 
 sys.path.insert(0, os.path.dirname(__file__))
 
-from infraestrutura.trasncriber.whisper_transcriber import WhisperTranscriber
-from user_cases.transcribe_meeting import TranscribeMeetingUC, TranscribeMeetingInput
+from infrastructure.transcriber.whisper_transcriber import WhisperTranscriber
+from use_cases.transcribe_meeting import TranscribeMeetingUC, TranscribeMeetingInput
 
 # Realiza um teste de basico de um arquivo de auddio sem diarização
 def test_transcricao_simples(audio_path: str) -> None:

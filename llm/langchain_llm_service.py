@@ -4,7 +4,7 @@ from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage, SystemMessage, AIMessage, BaseMessage
 from pydantic import SecretStr
 
-from entities.metting import Summary, Task, Decision
+from entities.meeting import Summary, Task, Decision
 from interface.llm_services import ILLMService, LLMServiceError
 from config.settings import get_settings
 

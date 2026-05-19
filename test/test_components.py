@@ -1,6 +1,6 @@
 # Testes de componentes individuais
 import pytest
-from entities.metting import Meeting, Summary, Task, Decision
+from entities.meeting import Meeting, Summary, Task, Decision
 from datetime import datetime
 
 

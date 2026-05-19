@@ -1,10 +1,10 @@
 # Testes de performance e latência
 import pytest
 import time
-from user_cases.transcribe_meeting import TranscribeMeetingUC, TranscribeMeetingInput
-from user_cases.summarize_metting import SummarizeMeetingUC, SummarizeMeetingInput
-from user_cases.chat_with_meeting import ChatWithMeetingUC, ChatWithMeetingInput
-from entities.metting import Meeting, Summary, Task, Decision
+from use_cases.transcribe_meeting import TranscribeMeetingUC, TranscribeMeetingInput
+from use_cases.summarize_meeting import SummarizeMeetingUC, SummarizeMeetingInput
+from use_cases.chat_with_meeting import ChatWithMeetingUC, ChatWithMeetingInput
+from entities.meeting import Meeting, Summary, Task, Decision
 from entities.transcript import Transcript, Segment
 from datetime import datetime
 
@@ -154,7 +154,7 @@ class TestErrorHandling:
 
     def test_invalid_audio_path(self):
         """Testa erro com caminho de áudio inválido"""
-        from infraestrutura.trasncriber.whisper_transcriber import WhisperTranscriber
+        from infrastructure.transcriber.whisper_transcriber import WhisperTranscriber
         from interface.transcriber import TranscriptionError
 
         transcriber = WhisperTranscriber()
@@ -219,7 +219,7 @@ class TestErrorHandling:
 
     def test_invalid_meeting_data(self):
         """Testa com dados de reunião inválidos"""
-        from user_cases.summarize_metting import SummarizeMeetingInput
+        from use_cases.summarize_meeting import SummarizeMeetingInput
 
         llm = MockLLMServiceFast()
         uc = SummarizeMeetingUC(llm)

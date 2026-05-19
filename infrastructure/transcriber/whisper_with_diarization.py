@@ -22,7 +22,7 @@ from diarização_reality.pyannote_diarizer import (
     PyannoteDiarizer,
     DiarizationSegment,
 )
-from infraestrutura.trasncriber.whisper_transcriber import WhisperTranscriber
+from infrastructure.transcriber.whisper_transcriber import WhisperTranscriber
 from config.settings import get_settings
 
 

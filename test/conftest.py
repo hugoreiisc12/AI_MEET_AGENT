@@ -12,10 +12,10 @@ from unittest.mock import MagicMock
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 from entities.transcript import Transcript, Segment
-from entities.metting import Meeting, Summary, Task, Decision
+from entities.meeting import Meeting, Summary, Task, Decision
 from interface.transcriber import ITranscriber, TranscriptionError
 from interface.llm_services import ILLMService, LLMServiceError
-from repositores.metting_repor import IMeetingRepository
+from repositories.meeting_repository import IMeetingRepository
 
 
 @pytest.fixture

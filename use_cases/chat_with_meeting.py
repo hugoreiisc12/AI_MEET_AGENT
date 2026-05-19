@@ -1,6 +1,6 @@
 # Use case: responde perguntas sobre reunião com contexto de transcrição
 from dataclasses import dataclass, field
-from entities.metting import Meeting
+from entities.meeting import Meeting
 from interface.llm_services import ILLMService, LLMServiceError
 
 
