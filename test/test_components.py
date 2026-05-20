@@ -1,6 +1,7 @@
 # Testes de componentes individuais
 import pytest
 from domain.entities.meeting import Meeting, Summary, Task, Decision
+from domain.entities.transcript import Transcript, Segment
 from datetime import datetime
 
 
@@ -151,8 +152,6 @@ class TestTranscriptEntity:
     
     def test_transcript_creation(self):
         """Testa criação de Transcript"""
-        from domain.entities.transcript import Transcript, Segment
-        
         transcript = Transcript(
             full_text="Bom dia a todos",
             segments=[
@@ -175,8 +174,6 @@ class TestTranscriptEntity:
     
     def test_transcript_duration(self):
         """Testa cálculo de duração"""
-        from domain.entities.transcript import Transcript, Segment
-        
         transcript = Transcript(
             full_text="Test",
             segments=[
@@ -190,8 +187,6 @@ class TestTranscriptEntity:
     
     def test_transcript_speakers(self):
         """Testa extração de speakers únicos"""
-        from domain.entities.transcript import Transcript, Segment
-        
         transcript = Transcript(
             full_text="Test",
             segments=[

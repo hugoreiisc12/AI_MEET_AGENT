@@ -1,7 +1,7 @@
 # Testes de integração completa
 import pytest
 from pathlib import Path
-from domain.entities.meeting import Meeting, Summary
+from domain.entities.meeting import Meeting, Summary, Task, Decision
 from use_cases.transcribe_meeting import TranscribeMeetingUC, TranscribeMeetingInput
 from use_cases.summarize_meeting import SummarizeMeetingUC, SummarizeMeetingInput
 from use_cases.chat_with_meeting import ChatWithMeetingUC, ChatWithMeetingInput
@@ -31,7 +31,6 @@ class MockTranscriber:
 class MockLLMService:
     """Mock de LLM service para testes"""
     def summarize(self, transcript: str) -> Summary:
-        from domain.entities.meeting import Task, Decision
         return Summary(
             overview="Reunião de planejamento onde foram definidas tarefas de onboarding e QA.",
             topics=["Onboarding", "QA", "Roadmap"],

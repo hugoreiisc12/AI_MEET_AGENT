@@ -3,6 +3,7 @@ from pathlib import Path
 from datetime import datetime
 
 from fastapi import APIRouter, UploadFile, File, HTTPException
+import redis
 
 from api.meeting import UploadResponse, MeetingStatusResponse, ProcessingStatus
 from config.settings import get_settings
@@ -18,8 +19,7 @@ _status_store: dict[str, ProcessingStatus] = {}
 def _set_status(meeting_id: str, status: ProcessingStatus) -> None:
     """Persiste status no Redis (collab) ou em memória (solo)."""
     if settings.is_collab:
-        import redis as redis_client
-        r = redis_client.from_url(settings.redis_url)
+        r = redis.from_url(settings.redis_url)
         r.set(f"status:{meeting_id}", status.value, ex=86400)
     else:
         _status_store[meeting_id] = status
@@ -28,8 +28,7 @@ def _set_status(meeting_id: str, status: ProcessingStatus) -> None:
 def _get_status(meeting_id: str) -> ProcessingStatus | None:
     """Lê status do Redis (collab) ou da memória (solo)."""
     if settings.is_collab:
-        import redis as redis_client
-        r = redis_client.from_url(settings.redis_url)
+        r = redis.from_url(settings.redis_url)
         val = r.get(f"status:{meeting_id}")
         return ProcessingStatus(val.decode()) if val else None
     return _status_store.get(meeting_id)

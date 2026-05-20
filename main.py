@@ -10,13 +10,13 @@ Modos de uso:
 
 import sys
 import os
+import subprocess
 
 sys.path.insert(0, os.path.dirname(__file__))
 
 
 def run_streamlit() -> None:
     """Sobe a interface Streamlit."""
-    import subprocess
     subprocess.run(
         [
             sys.executable, "-m", "streamlit", "run",
@@ -29,7 +29,6 @@ def run_streamlit() -> None:
 
 def run_api() -> None:
     """Sobe a FastAPI via uvicorn."""
-    import subprocess
     subprocess.run(
         [
             sys.executable, "-m", "uvicorn",
@@ -43,7 +42,6 @@ def run_api() -> None:
 
 def run_worker() -> None:
     """Sobe o Celery worker."""
-    import subprocess
     subprocess.run(
         [
             sys.executable, "-m", "celery",
