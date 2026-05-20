@@ -115,7 +115,7 @@ def list_meetings():
 
 def _process_sync(meeting_id: str, audio_path: str, title: str) -> None:
     """Processamento síncrono — modo solo."""
-    from entities.meeting import Meeting
+    from domain.entities.meeting import Meeting
     from use_cases.transcribe_meeting import TranscribeMeetingInput
     from use_cases.summarize_meeting import SummarizeMeetingInput
 

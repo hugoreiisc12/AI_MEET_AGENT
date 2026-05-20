@@ -15,8 +15,8 @@ from pathlib import Path
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../../.."))
 
-from entities.meeting import Meeting, Summary, Task, Decision
-from entities.meeting_type import MeetingType
+from domain.entities.meeting import Meeting, Summary, Task, Decision
+from domain.entities.meeting_type import MeetingType
 
 
 

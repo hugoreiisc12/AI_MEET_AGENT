@@ -2,7 +2,7 @@ import os
 from pathlib import Path
 from openai import OpenAI
 
-from entities.transcript import Transcript, Segment
+from domain.entities.transcript import Transcript, Segment
 from interface.transcriber import ITranscriber, TranscriptionError
 from config.settings import get_settings
 

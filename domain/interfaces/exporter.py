@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from entities.meeting import Meeting
+from domain.entities.meeting import Meeting
 
 
 class IExporter(ABC):

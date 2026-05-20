@@ -16,7 +16,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from config.settings import get_settings
-from api import meetings_2 as meetings
+from api.routers import meetings
 from api import chat
 
 settings = get_settings()

@@ -1,7 +1,7 @@
 # Use case: sumariza reunião transcrita e gera resumo estruturado
 from dataclasses import dataclass
 from typing import Optional
-from entities.meeting import Meeting, Summary
+from domain.entities.meeting import Meeting, Summary
 from interface.llm_services import ILLMService, LLMServiceError
 
 

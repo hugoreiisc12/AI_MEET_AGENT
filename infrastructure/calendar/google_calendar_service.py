@@ -26,7 +26,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 from typing import Optional
 
-from entities.calendar_event import ICalendarService, CalendarEvent, CalendarServiceError
+from domain.entities.calendar_event import ICalendarService, CalendarEvent, CalendarServiceError
 
 SCOPES = ["https://www.googleapis.com/auth/calendar.readonly"]
 

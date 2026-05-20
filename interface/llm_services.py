@@ -1,6 +1,6 @@
 # Interface de serviço de LLM que define o contrato para qualquer implementação
 from abc import ABC, abstractmethod 
-from entities.meeting import Summary
+from domain.entities.meeting import Summary
 # Classe abstrata que qualquer serviço de LLM deve implementar
 class ILLMService(ABC):
     """Contrato para qualquer implementação de serviço de LLM."""

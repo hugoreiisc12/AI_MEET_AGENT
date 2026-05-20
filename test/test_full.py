@@ -9,8 +9,8 @@ import pytest
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 # CORRIGIDO: Imports ajustados para a estrutura real do projeto
-from entities.meeting import Meeting, Summary, Task, Decision
-from entities.transcript import Transcript, Segment
+from domain.entities.meeting import Meeting, Summary, Task, Decision
+from domain.entities.transcript import Transcript, Segment
 from interface.llm_services import ILLMService
 from interface.transcriber import ITranscriber
 from use_cases.transcribe_meeting import TranscribeMeetingUC, TranscribeMeetingInput

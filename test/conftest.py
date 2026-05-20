@@ -11,8 +11,8 @@ from unittest.mock import MagicMock
 # Garante que o ROOT do projeto está no path
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-from entities.transcript import Transcript, Segment
-from entities.meeting import Meeting, Summary, Task, Decision
+from domain.entities.transcript import Transcript, Segment
+from domain.entities.meeting import Meeting, Summary, Task, Decision
 from interface.transcriber import ITranscriber, TranscriptionError
 from interface.llm_services import ILLMService, LLMServiceError
 from repositories.meeting_repository import IMeetingRepository

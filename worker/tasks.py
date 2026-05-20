@@ -38,7 +38,7 @@ def process_meeting_task_fn(meeting_id: str, audio_path: str, title: str) -> dic
     Lógica real de processamento — separada do decorator Celery
     para ser testável sem broker.
     """
-    from entities.meeting import Meeting
+    from domain.entities.meeting import Meeting
     from use_cases.transcribe_meeting import TranscribeMeetingInput
     from use_cases.summarize_meeting import SummarizeMeetingInput
     from presentation.container import get_container

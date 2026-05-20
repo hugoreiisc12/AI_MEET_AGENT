@@ -8,8 +8,8 @@ Não modifica nenhuma entity existente — retorna SentimentResult separado
 from __future__ import annotations
 
 import json
-from llm.langchain_llm_service import LLMServiceError
-from entities.sentiment_result import SentimentResult, SpeakerSentiment
+from infrastructure.llm.langchain_llm_service import LLMServiceError
+from domain.entities.sentiment_result import SentimentResult, SpeakerSentiment
 from typing import Optional
 
 from interface.llm_services import LLMServiceError

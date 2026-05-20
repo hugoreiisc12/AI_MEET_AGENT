@@ -2,7 +2,7 @@
 # garantindo a independência do domínio em relação à tecnologia de armazenamento utilizada (ex: banco de dados, arquivos, etc.)
 from abc import ABC, abstractmethod
 from typing import Optional 
-from entities.meeting import Meeting
+from domain.entities.meeting import Meeting
 
 # Definindo classe de contrato para persistência de reuniões, com métodos para salvar, buscar por ID, listar todas e deletar reuniões por ID
 class IMeetingRepository(ABC):

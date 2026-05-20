@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from typing import Optional
-from entities.calendar_event import ICalendarService, CalendarEvent, CalendarServiceError
+from domain.entities.calendar_event import ICalendarService, CalendarEvent, CalendarServiceError
 
 
 @dataclass

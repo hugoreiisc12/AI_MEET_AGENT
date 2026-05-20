@@ -4,8 +4,8 @@ import time
 from use_cases.transcribe_meeting import TranscribeMeetingUC, TranscribeMeetingInput
 from use_cases.summarize_meeting import SummarizeMeetingUC, SummarizeMeetingInput
 from use_cases.chat_with_meeting import ChatWithMeetingUC, ChatWithMeetingInput
-from entities.meeting import Meeting, Summary, Task, Decision
-from entities.transcript import Transcript, Segment
+from domain.entities.meeting import Meeting, Summary, Task, Decision
+from domain.entities.transcript import Transcript, Segment
 from datetime import datetime
 
 

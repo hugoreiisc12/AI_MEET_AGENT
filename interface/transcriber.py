@@ -1,6 +1,6 @@
 # Interface transcritor que define o contrato para qualquer implementação de transcrição
 from abc import ABC, abstractmethod
-from entities.transcript import Transcript
+from domain.entities.transcript import Transcript
 
 
 # Classe abstrata que qualquer transcritor deve implementar

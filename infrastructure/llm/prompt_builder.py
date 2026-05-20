@@ -9,7 +9,7 @@ Principíos:
 - Testável: PromptBuilder é uma classe pura, sem chamadas externas
 """
 
-from entities.meeting_type import MeetingType
+from domain.entities.meeting_type import MeetingType
 
 # Few-shot exemplos por tipo
 # Cada exemplo mostra a LLM o formato e nívelde detalhe esperado

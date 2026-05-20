@@ -11,14 +11,55 @@ from functools import lru_cache
 from config.settings import get_settings, AppMode
 
 from infrastructure.transcriber.whisper_transcriber import WhisperTranscriber
-from llm.langchain_llm_service import LangChainLLMService
-from infrastructure.json_meeting_repor import JsonMeetingRepository
+from infrastructure.llm.langchain_llm_service import LangChainLLMService   # ← corrigido
+from infrastructure.json_meeting_repository import JsonMeetingRepository
 
 from use_cases.transcribe_meeting import TranscribeMeetingUC
-from use_cases.analyze_sentiment import AnalyzeSentimentUC
-from use_cases.fetch_meeting_context import FetchMeetingContextUC
 from use_cases.summarize_meeting import SummarizeMeetingUC
 from use_cases.chat_with_meeting import ChatWithMeetingUC
+from use_cases.analyze_sentiment import AnalyzeSentimentUC
+from use_cases.fetch_meeting_context import FetchMeetingContextUC
+
+
+def _build_common(settings, repository) -> dict:
+    """
+    Monta os componentes compartilhados entre Solo e Collab.
+    Elimina duplicação — qualquer mudança feita aqui vale para os dois modos.
+    """
+    transcriber = WhisperTranscriber()
+    llm         = LangChainLLMService()
+
+    # Use cases principais
+    transcribe_meeting = TranscribeMeetingUC(transcriber)
+    summarize_meeting  = SummarizeMeetingUC(llm, repository)
+    chat_with_meeting  = ChatWithMeetingUC(llm)
+
+    # Fase 6 — sentimento
+    from infrastructure.llm.sentiment_analyzer import SentimentAnalyzer
+    sentiment_analyzer = SentimentAnalyzer(llm_client=llm)   # ← passa o service, não ._llm
+    analyze_sentiment  = AnalyzeSentimentUC(analyzer=sentiment_analyzer)
+
+    # Fase 6 — calendar (opcional via .env)
+    fetch_meeting_context = None
+    if getattr(settings, "enable_calendar", False):
+        from infrastructure.calendar.google_calendar_service import GoogleCalendarService
+        calendar = GoogleCalendarService(
+            credentials_path=getattr(settings, "google_credentials_path", "credentials.json"),
+            token_path=getattr(settings, "google_token_path", "token.json"),
+        )
+        fetch_meeting_context = FetchMeetingContextUC(calendar)
+
+    return {
+        "_transcriber":         transcriber,
+        "_llm":                 llm,
+        "_repository":          repository,
+        "transcribe_meeting":   transcribe_meeting,
+        "summarize_meeting":    summarize_meeting,
+        "chat_with_meeting":    chat_with_meeting,
+        "analyze_sentiment":    analyze_sentiment,
+        "fetch_meeting_context": fetch_meeting_context,
+        "repository":           repository,
+    }
 
 
 class SoloContainer:
@@ -28,41 +69,18 @@ class SoloContainer:
     """
 
     def __init__(self) -> None:
-        settings = get_settings()
-
-        # Infrastructure
-        self._transcriber = WhisperTranscriber()
-        self._llm = LangChainLLMService()
-        self._repository = JsonMeetingRepository(
-            storage_path=settings.storage_path
-        )
-
-        # Use cases
-        self.transcribe_meeting = TranscribeMeetingUC(self._transcriber)
-        self.summarize_meeting = SummarizeMeetingUC(self._llm, self._repository)
-        self.chat_with_meeting = ChatWithMeetingUC(self._llm)
-        self.repository = self._repository
-
-        # Use cases Fase 6
-        from infrastructure.llm.sentiment_analyzer import SentimentAnalyzer
-        self._sentiment_analyzer = SentimentAnalyzer(llm_client=self._llm._llm)
-        self.analyze_sentiment = AnalyzeSentimentUC(analyzer=self._sentiment_analyzer)
-
-        if settings.enable_calendar:
-            from infrastructure.calendar.google_calendar_service import GoogleCalendarService
-            self._calendar = GoogleCalendarService(
-                credentials_path=settings.google_credentials_path,
-                token_path=settings.google_token_path,
-            )
-            self.fetch_meeting_context = FetchMeetingContextUC(self._calendar)
-        else:
-            self.fetch_meeting_context = None
+        settings   = get_settings()
+        repository = JsonMeetingRepository(storage_path=settings.storage_path)
+        self.__dict__.update(_build_common(settings, repository))
 
 
 class CollabContainer:
     """
-    Modo colaborativo — requer Postgres e Celery.
+    Modo colaborativo — Postgres + Celery.
     Requer: DATABASE_URL e REDIS_URL no .env.
+
+    Nota: PostgresMeetingRepository ainda não implementado.
+    Usa JsonMeetingRepository como fallback com aviso.
     """
 
     def __init__(self) -> None:
@@ -75,39 +93,14 @@ class CollabContainer:
                 "Exemplo: DATABASE_URL=postgresql+asyncpg://user:pass@localhost/meetagent"
             )
 
-        # Infrastructure
-        self._transcriber = WhisperTranscriber()
-        self._llm = LangChainLLMService()
-
-        # TODO: substituir por PostgresMeetingRepository quando implementado.
-        # Atualmente usa JSON local mesmo em modo collab.
+        # TODO: trocar por PostgresMeetingRepository quando implementado
         warnings.warn(
-            "CollabContainer está usando JsonMeetingRepository (armazenamento local). "
-            "Implemente PostgresMeetingRepository e substitua aqui para produção.",
+            "CollabContainer usando JsonMeetingRepository (storage local). "
+            "Implemente PostgresMeetingRepository para produção real.",
             stacklevel=2,
         )
-        self._repository = JsonMeetingRepository(settings.storage_path)
-
-        # Use cases — idênticos ao SoloContainer
-        self.transcribe_meeting = TranscribeMeetingUC(self._transcriber)
-        self.summarize_meeting = SummarizeMeetingUC(self._llm, self._repository)
-        self.chat_with_meeting = ChatWithMeetingUC(self._llm)
-        self.repository = self._repository
-
-        # Use cases Fase 6
-        from infrastructure.llm.sentiment_analyzer import SentimentAnalyzer
-        self._sentiment_analyzer = SentimentAnalyzer(llm_client=self._llm._llm)
-        self.analyze_sentiment = AnalyzeSentimentUC(analyzer=self._sentiment_analyzer)
-
-        if settings.enable_calendar:
-            from infrastructure.calendar.google_calendar_service import GoogleCalendarService
-            self._calendar = GoogleCalendarService(
-                credentials_path=settings.google_credentials_path,
-                token_path=settings.google_token_path,
-            )
-            self.fetch_meeting_context = FetchMeetingContextUC(self._calendar)
-        else:
-            self.fetch_meeting_context = None
+        repository = JsonMeetingRepository(settings.storage_path)
+        self.__dict__.update(_build_common(settings, repository))
 
 
 def build_container() -> SoloContainer | CollabContainer:

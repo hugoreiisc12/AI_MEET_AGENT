@@ -15,7 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import streamlit as st
 from config.settings import get_settings, AppMode
 from presentation.container import get_container
-from entities.meeting import Meeting
+from domain.entities.meeting import Meeting
 from use_cases.transcribe_meeting import TranscribeMeetingInput
 from use_cases.summarize_meeting import SummarizeMeetingInput
 from use_cases.chat_with_meeting import ChatWithMeetingInput

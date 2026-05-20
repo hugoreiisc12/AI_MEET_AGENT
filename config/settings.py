@@ -35,7 +35,15 @@ class Settings(BaseSettings):
     secret_key: str = "dev-secret-change-in-prod"  # Chave secreta (mudar em produção)
     allowed_origins: list[str] = Field(default=["http://localhost:8501"])  # CORS permitido
 
-    max_audio_size_mb: int = 25  # Limite máximo de tamanho de áudio
+    max_audio_size_mb: int = 25
+
+    use_real_diarization: bool = False
+    huggingface_token: str = ""
+    diarization_device: str = "cpu"
+    default_meeting_type: str = "general"
+    google_credentials_path: str = "credentials.json"
+    google_token_path: str = "token.json"
+    enable_calendar: bool = False  # Limite máximo de tamanho de áudio
 
     # Propriedade para verificar se é modo solo
     @property

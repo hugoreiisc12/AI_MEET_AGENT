@@ -10,7 +10,7 @@ Para usar:
 """
 
 from typing import Optional
-from entities.meeting import Meeting
+from domain.entities.meeting import Meeting
 from repositories.meeting_repository import IMeetingRepository
 
 

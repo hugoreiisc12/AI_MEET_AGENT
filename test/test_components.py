@@ -1,6 +1,6 @@
 # Testes de componentes individuais
 import pytest
-from entities.meeting import Meeting, Summary, Task, Decision
+from domain.entities.meeting import Meeting, Summary, Task, Decision
 from datetime import datetime
 
 
@@ -151,7 +151,7 @@ class TestTranscriptEntity:
     
     def test_transcript_creation(self):
         """Testa criação de Transcript"""
-        from entities.transcript import Transcript, Segment
+        from domain.entities.transcript import Transcript, Segment
         
         transcript = Transcript(
             full_text="Bom dia a todos",
@@ -165,7 +165,7 @@ class TestTranscriptEntity:
     
     def test_transcript_has_diarization(self):
         """Testa property has_diarization"""
-        from entities.transcript import Transcript
+        from domain.entities.transcript import Transcript
         
         t1 = Transcript(full_text="Test")
         assert t1.has_diarization == False
@@ -175,7 +175,7 @@ class TestTranscriptEntity:
     
     def test_transcript_duration(self):
         """Testa cálculo de duração"""
-        from entities.transcript import Transcript, Segment
+        from domain.entities.transcript import Transcript, Segment
         
         transcript = Transcript(
             full_text="Test",
@@ -190,7 +190,7 @@ class TestTranscriptEntity:
     
     def test_transcript_speakers(self):
         """Testa extração de speakers únicos"""
-        from entities.transcript import Transcript, Segment
+        from domain.entities.transcript import Transcript, Segment
         
         transcript = Transcript(
             full_text="Test",

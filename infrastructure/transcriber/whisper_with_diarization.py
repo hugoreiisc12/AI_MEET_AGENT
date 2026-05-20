@@ -16,7 +16,7 @@ quando USE_REAL_DIARIZATION=true no .env.
 
 from __future__ import annotations
 
-from entities.transcript import Transcript, Segment
+from domain.entities.transcript import Transcript, Segment
 from interface.transcriber import ITranscriber, TranscriptionError
 from diarização_reality.pyannote_diarizer import (
     PyannoteDiarizer,

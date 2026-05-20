@@ -6,8 +6,8 @@ O PromptBuilder é uma classe pura — testável sem chamar nenhuma API.
 
 import json
 import pytest
-from entities.meeting_type import MeetingType
-from llm.promptBuilder.promptBuilder import PromptBuilder
+from domain.entities.meeting_type import MeetingType
+from infrastructure.llm.prompt_builder import PromptBuilder
 
 # TODOs para futuro:
 # Adicionar testes de edge cases e validação de formato JSON
@@ -125,7 +125,7 @@ class TestIntegracaoLLMServiceComTipo:
     def test_summarize_passa_meeting_type_ao_builder(self):
         import json
         from unittest.mock import MagicMock
-        from llm.langchain_llm_service import LangChainLLMService
+        from infrastructure.llm.langchain_llm_service import LangChainLLMService
 
         valid_json = json.dumps({
             "overview": "Reunião de planejamento.",
@@ -148,7 +148,7 @@ class TestIntegracaoLLMServiceComTipo:
     def test_general_e_planning_geram_system_prompts_diferentes(self):
         import json
         from unittest.mock import MagicMock
-        from llm.langchain_llm_service import LangChainLLMService
+        from infrastructure.llm.langchain_llm_service import LangChainLLMService
 
         valid_json = json.dumps({
             "overview": "ok", "topics": [], "tasks": [], "decisions": []

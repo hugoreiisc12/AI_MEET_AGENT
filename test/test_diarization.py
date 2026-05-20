@@ -7,13 +7,13 @@ modelo pyannote real (usa mocks).
 
 import pytest
 from unittest.mock import MagicMock, patch
-from entities.transcript import Transcript, Segment
-from interface.transcriber import TranscriptionError
-from diarização_reality.pyannote_diarizer import (
+from domain.entities.transcript import Transcript, Segment
+from domain.interfaces.transcriber import TranscriptionError
+from infrastructure.transcriber.pyannote_diarizer import (
     PyannoteDiarizer,
     DiarizationSegment,
 )
-# from diarização_reality.whisper_with_diarization import WhisperWithDiarization  # Arquivo vazio
+from infrastructure.transcriber.whisper_with_diarization import WhisperWithDiarization
 
 
 # ── Fixtures ──────────────────────────────────────────────────────────────
@@ -117,109 +117,105 @@ class TestPyannoteDiarizer:
 
 
 # ── Testes do WhisperWithDiarization ─────────────────────────────────────
-# DESABILITADOS: WhisperWithDiarization não foi implementado ainda
 
 class TestWhisperWithDiarization:
-    """Testes desabilitados até implementação de WhisperWithDiarization."""
-    pass
 
-    # def test_transcribe_delega_ao_whisper(self, mock_whisper, mock_diarizer):
-    #     wwd = WhisperWithDiarization(whisper=mock_whisper, diarizer=mock_diarizer)
-    #     result = wwd.transcribe("audio.wav")
-    #     mock_whisper.transcribe.assert_called_once_with("audio.wav")
-    #     assert result.full_text != ""
+    def test_transcribe_delega_ao_whisper(self, mock_whisper, mock_diarizer):
+        wwd = WhisperWithDiarization(whisper=mock_whisper, diarizer=mock_diarizer)
+        result = wwd.transcribe("audio.wav")
+        mock_whisper.transcribe.assert_called_once_with("audio.wav")
+        assert result.full_text != ""
 
-    # def test_transcribe_with_diarization_alinha_speakers(
-    #     self, mock_whisper, mock_diarizer, diar_segments
-    # ):
-    #     wwd = WhisperWithDiarization(whisper=mock_whisper, diarizer=mock_diarizer)
-    #     result = wwd.transcribe_with_diarization("audio.wav")
+    def test_transcribe_with_diarization_alinha_speakers(
+        self, mock_whisper, mock_diarizer, diar_segments
+    ):
+        wwd = WhisperWithDiarization(whisper=mock_whisper, diarizer=mock_diarizer)
+        result = wwd.transcribe_with_diarization("audio.wav")
 
-    #     # Segmento 1: [0.5-7.5] → maior overlap com SPEAKER_00 [0.0-8.0]
-    #     assert result.segments[0].speaker == "SPEAKER_00"
-    #     # Segmento 2: [9.0-15.0] → maior overlap com SPEAKER_01 [8.5-16.0]
-    #     assert result.segments[1].speaker == "SPEAKER_01"
-    #     # Segmento 3: [17.5-24.0] → maior overlap com SPEAKER_00 [17.0-24.5]
-    #     assert result.segments[2].speaker == "SPEAKER_00"
-    #     # Segmento 4: [25.5-32.0] → maior overlap com SPEAKER_01 [25.0-33.0]
-    #     assert result.segments[3].speaker == "SPEAKER_01"
+        # Segmento 1: [0.5-7.5] → maior overlap com SPEAKER_00 [0.0-8.0]
+        assert result.segments[0].speaker == "SPEAKER_00"
+        # Segmento 2: [9.0-15.0] → maior overlap com SPEAKER_01 [8.5-16.0]
+        assert result.segments[1].speaker == "SPEAKER_01"
+        # Segmento 3: [17.5-24.0] → maior overlap com SPEAKER_00 [17.0-24.5]
+        assert result.segments[2].speaker == "SPEAKER_00"
+        # Segmento 4: [25.5-32.0] → maior overlap com SPEAKER_01 [25.0-33.0]
+        assert result.segments[3].speaker == "SPEAKER_01"
 
-    # def test_texto_preservado_apos_alinhamento(self, mock_whisper, mock_diarizer):
-    #     wwd = WhisperWithDiarization(whisper=mock_whisper, diarizer=mock_diarizer)
-    #     result = wwd.transcribe_with_diarization("audio.wav")
+    def test_texto_preservado_apos_alinhamento(self, mock_whisper, mock_diarizer):
+        wwd = WhisperWithDiarization(whisper=mock_whisper, diarizer=mock_diarizer)
+        result = wwd.transcribe_with_diarization("audio.wav")
 
-    #     assert result.segments[0].text == "Bom dia, vamos começar."
-    #     assert result.segments[1].text == "Qual é o objetivo da sprint?"
+        assert result.segments[0].text == "Bom dia, vamos começar."
+        assert result.segments[1].text == "Qual é o objetivo da sprint?"
 
-    # def test_timestamps_preservados(self, mock_whisper, mock_diarizer):
-    #     wwd = WhisperWithDiarization(whisper=mock_whisper, diarizer=mock_diarizer)
-    #     result = wwd.transcribe_with_diarization("audio.wav")
+    def test_timestamps_preservados(self, mock_whisper, mock_diarizer):
+        wwd = WhisperWithDiarization(whisper=mock_whisper, diarizer=mock_diarizer)
+        result = wwd.transcribe_with_diarization("audio.wav")
 
-    #     assert result.segments[0].start == 0.5
-    #     assert result.segments[0].end   == 7.5
+        assert result.segments[0].start == 0.5
+        assert result.segments[0].end   == 7.5
 
-    # def test_fallback_para_pseudo_diarizacao_se_pyannote_falhar(
-    #     self, mock_whisper, mock_diarizer
-    # ):
-    #     mock_diarizer.diarize.side_effect = TranscriptionError("Pyannote indisponível")
-    #     wwd = WhisperWithDiarization(whisper=mock_whisper, diarizer=mock_diarizer)
-    #     result = wwd.transcribe_with_diarization("audio.wav")
+    def test_fallback_para_pseudo_diarizacao_se_pyannote_falhar(
+        self, mock_whisper, mock_diarizer
+    ):
+        mock_diarizer.diarize.side_effect = TranscriptionError("Pyannote indisponível")
+        wwd = WhisperWithDiarization(whisper=mock_whisper, diarizer=mock_diarizer)
+        result = wwd.transcribe_with_diarization("audio.wav")
 
-    #     # Deve cair no fallback do Whisper sem levantar exceção
-    #     assert result is not None
-    #     mock_whisper.transcribe_with_diarization.assert_called_once()
+        # Deve cair no fallback do Whisper sem levantar exceção
+        assert result is not None
+        mock_whisper.transcribe_with_diarization.assert_called_once()
 
-    # def test_fallback_sem_segmentos_whisper(self, mock_diarizer):
-    #     """Se Whisper não retornar segmentos, usa pseudo-diarização."""
-    #     whisper = MagicMock()
-    #     empty_transcript = Transcript(full_text="Texto sem segmentos.", segments=[])
-    #     whisper.transcribe.return_value = empty_transcript
-    #     whisper.transcribe_with_diarization.return_value = empty_transcript
+    def test_fallback_sem_segmentos_whisper(self, mock_diarizer):
+        """Se Whisper não retornar segmentos, usa pseudo-diarização."""
+        whisper = MagicMock()
+        empty_transcript = Transcript(full_text="Texto sem segmentos.", segments=[])
+        whisper.transcribe.return_value = empty_transcript
+        whisper.transcribe_with_diarization.return_value = empty_transcript
 
-    #     wwd = WhisperWithDiarization(whisper=whisper, diarizer=mock_diarizer)
-    #     result = wwd.transcribe_with_diarization("audio.wav")
+        wwd = WhisperWithDiarization(whisper=whisper, diarizer=mock_diarizer)
+        result = wwd.transcribe_with_diarization("audio.wav")
 
-    #     whisper.transcribe_with_diarization.assert_called_once()
-    #     mock_diarizer.diarize.assert_not_called()
+        whisper.transcribe_with_diarization.assert_called_once()
+        mock_diarizer.diarize.assert_not_called()
 
 
 class TestAlinhamento:
-    """Testa a lógica de alinhamento isolada - DESABILITADO."""
-    pass
+    """Testa a lógica de alinhamento isolada."""
 
-    # def setup_method(self):
-    #     self.wwd = WhisperWithDiarization(
-    #         whisper=MagicMock(),
-    #         diarizer=MagicMock(),
-    #     )
+    def setup_method(self):
+        self.wwd = WhisperWithDiarization(
+            whisper=MagicMock(),
+            diarizer=MagicMock(),
+        )
 
-    # def test_speaker_com_maior_overlap(self):
-    #     diar = [
-    #         DiarizationSegment(0.0, 3.0, "SPEAKER_00"),  # 2.5s de overlap
-    #         DiarizationSegment(3.0, 8.0, "SPEAKER_01"),  # 2.0s de overlap
-    #     ]
-    #     speaker = self.wwd._dominant_speaker(0.5, 5.0, diar)
-    #     assert speaker == "SPEAKER_00"
+    def test_speaker_com_maior_overlap(self):
+        diar = [
+            DiarizationSegment(0.0, 3.0, "SPEAKER_00"),  # 2.5s de overlap
+            DiarizationSegment(3.0, 8.0, "SPEAKER_01"),  # 2.0s de overlap
+        ]
+        speaker = self.wwd._dominant_speaker(0.5, 5.0, diar)
+        assert speaker == "SPEAKER_00"
 
-    # def test_sem_overlap_retorna_speaker_padrao(self):
-    #     diar = [DiarizationSegment(10.0, 20.0, "SPEAKER_00")]
-    #     speaker = self.wwd._dominant_speaker(0.0, 5.0, diar)
-    #     assert speaker == "SPEAKER_00"
+    def test_sem_overlap_retorna_speaker_padrao(self):
+        diar = [DiarizationSegment(10.0, 20.0, "SPEAKER_00")]
+        speaker = self.wwd._dominant_speaker(0.0, 5.0, diar)
+        assert speaker == "SPEAKER_00"
 
-    # def test_overlap_exato_na_borda(self):
-    #     """Segmento começa exatamente onde o speaker acaba — sem overlap."""
-    #     diar = [
-    #         DiarizationSegment(0.0, 5.0, "SPEAKER_00"),
-    #         DiarizationSegment(5.0, 10.0, "SPEAKER_01"),
-    #     ]
-    #     speaker = self.wwd._dominant_speaker(5.0, 8.0, diar)
-    #     assert speaker == "SPEAKER_01"
+    def test_overlap_exato_na_borda(self):
+        """Segmento começa exatamente onde o speaker acaba — sem overlap."""
+        diar = [
+            DiarizationSegment(0.0, 5.0, "SPEAKER_00"),
+            DiarizationSegment(5.0, 10.0, "SPEAKER_01"),
+        ]
+        speaker = self.wwd._dominant_speaker(5.0, 8.0, diar)
+        assert speaker == "SPEAKER_01"
 
-    # def test_multiplos_speakers_mesmo_segmento(self):
-    #     """Speaker que cobre mais tempo no segmento vence."""
-    #     diar = [
-    #         DiarizationSegment(0.0,  4.0, "SPEAKER_00"),  # 4s de overlap
-    #         DiarizationSegment(4.0, 10.0, "SPEAKER_01"),  # 1s de overlap
-    #     ]
-    #     speaker = self.wwd._dominant_speaker(0.0, 5.0, diar)
-    #     assert speaker == "SPEAKER_00"
+    def test_multiplos_speakers_mesmo_segmento(self):
+        """Speaker que cobre mais tempo no segmento vence."""
+        diar = [
+            DiarizationSegment(0.0,  4.0, "SPEAKER_00"),  # 4s de overlap
+            DiarizationSegment(4.0, 10.0, "SPEAKER_01"),  # 1s de overlap
+        ]
+        speaker = self.wwd._dominant_speaker(0.0, 5.0, diar)
+        assert speaker == "SPEAKER_00"
