@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from domain.entities.transcript import Transcript, Segment
 from interface.transcriber import ITranscriber, TranscriptionError
-from diarização_reality.pyannote_diarizer import (
+from infrastructure.transcriber.pyannote_diarizer import (
     PyannoteDiarizer,
     DiarizationSegment,
 )

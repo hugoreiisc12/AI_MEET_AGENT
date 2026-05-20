@@ -125,7 +125,7 @@ class TestIntegracaoLLMServiceComTipo:
     def test_summarize_passa_meeting_type_ao_builder(self):
         import json
         from unittest.mock import MagicMock
-        from infrastructure.llm.langchain_llm_service import LangChainLLMService
+        from llm.langchain_llm_service import LangChainLLMService
 
         valid_json = json.dumps({
             "overview": "Reunião de planejamento.",
@@ -138,7 +138,7 @@ class TestIntegracaoLLMServiceComTipo:
         mock_llm.invoke.return_value.content = valid_json
 
         service = LangChainLLMService(llm=mock_llm)
-        service.summarize("transcrição", MeetingType.PLANNING)
+        service.summarize("transcrição")
 
         # Verifica que o system prompt contém instruções de planning
         messages = mock_llm.invoke.call_args[0][0]
@@ -148,7 +148,7 @@ class TestIntegracaoLLMServiceComTipo:
     def test_general_e_planning_geram_system_prompts_diferentes(self):
         import json
         from unittest.mock import MagicMock
-        from infrastructure.llm.langchain_llm_service import LangChainLLMService
+        from llm.langchain_llm_service import LangChainLLMService
 
         valid_json = json.dumps({
             "overview": "ok", "topics": [], "tasks": [], "decisions": []
@@ -157,10 +157,10 @@ class TestIntegracaoLLMServiceComTipo:
         mock_llm.invoke.return_value.content = valid_json
         service = LangChainLLMService(llm=mock_llm)
 
-        service.summarize("transcrição", MeetingType.GENERAL)
+        service.summarize("transcrição")
         general_prompt = mock_llm.invoke.call_args[0][0][0].content
 
-        service.summarize("transcrição", MeetingType.PLANNING)
+        service.summarize("transcrição")
         planning_prompt = mock_llm.invoke.call_args[0][0][0].content
 
         assert general_prompt != planning_prompt

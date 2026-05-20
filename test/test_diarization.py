@@ -8,7 +8,7 @@ modelo pyannote real (usa mocks).
 import pytest
 from unittest.mock import MagicMock, patch
 from domain.entities.transcript import Transcript, Segment
-from domain.interfaces.transcriber import TranscriptionError
+from interface.transcriber import TranscriptionError
 from infrastructure.transcriber.pyannote_diarizer import (
     PyannoteDiarizer,
     DiarizationSegment,

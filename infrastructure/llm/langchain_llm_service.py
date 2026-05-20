@@ -5,38 +5,10 @@ from langchain_core.messages import HumanMessage, SystemMessage, AIMessage, Base
 from pydantic import SecretStr
 
 from domain.entities.meeting import Summary, Task, Decision
+from domain.entities.meeting_type import MeetingType
 from interface.llm_services import ILLMService, LLMServiceError
 from config.settings import get_settings
-
-# Prompt para sumarização: instrui LLM a retornar JSON estruturado
-SUMMARIZE_SYSTEM_PROMPT = """Você é um assistente de IA especializado em resumir reuniões corporativas.
-
-Analise a transcrição fornecida e retorne um JSON com exatamente esta estrutura:
-
-{
-   "overview": "Parágrafo de 2-3 linhas resumindo o propósito e resultado da reunião",
-   "topics": ["Tópico 1", "Tópico 2"],
-   "tasks": [
-    {
-        "description": "Descrição com detalhes da tarefa",
-        "responsible": "Nome ou 'Não definido'",
-        "deadline": "Prazo mencionado ou 'Não definido'"
-    }
-   ],
-   "decisions": [
-    {
-      "description": "Descrição da tomada de decisão",
-      "context": "Contexto do que e porque foi definido"
-    }
-   ]
-}
-
-Regras:
-- Responda APENAS com um JSON, sem texto antes ou depois
-- Se um campo não for identificado, use lista vazia [] ou string vazia ""
-- Extraia apenas o que está explicitamente na transcrição
-- Escreva em português Brasil
-"""
+from infrastructure.llm.prompt_builder import PromptBuilder
 
 # Prompt para chat: instrui LLM a responder perguntas sobre reunião
 CHAT_SYSTEM_PROMPT = """Você é um assistente de reuniões. Você participou da reunião abaixo e pode responder perguntas sobre ela.
@@ -66,12 +38,16 @@ class LangChainLLMService(ILLMService):
         self._current_transcript: str = ""
 
     # Sumariza transcrição em Summary estruturado
-    def summarize(self, transcript: str) -> Summary:
+    def summarize(self, transcript: str, meeting_type: MeetingType = MeetingType.GENERAL) -> Summary:
         """Analisa transcrição e retorna Summary com tópicos, tarefas, decisões."""
         try:
+            builder = PromptBuilder()
+            system_prompt = builder.build_summarize_system(meeting_type)
+            user_message = builder.build_summarize_user(transcript)
+            
             messages: list[BaseMessage] = [
-                SystemMessage(content=SUMMARIZE_SYSTEM_PROMPT),
-                HumanMessage(content=f"Transcrição:\n{transcript}"),
+                SystemMessage(content=system_prompt),
+                HumanMessage(content=user_message),
             ]
             response = self._llm.invoke(messages)
             content = response.content if isinstance(response.content, str) else str(response.content)
