@@ -2,24 +2,26 @@
 from dataclasses import dataclass
 from typing import Optional
 from domain.entities.meeting import Meeting, Summary
+from domain.entities.meeting_type import MeetingType
 from interface.llm_services import ILLMService, LLMServiceError
 
 
 # Dados de entrada para sumarização de reunião
 @dataclass
 class SummarizeMeetingInput:
-    meeting: Meeting  # Reunião já transcrita
+    meeting: Meeting
+    meeting_type: MeetingType = MeetingType.GENERAL
 
 
 # Dados de saída da sumarização
 @dataclass
 class SummarizeMeetingOutput:
     success: bool
-    summary: Optional[Summary] = None      
-    meeting: Optional[Meeting] = None      
+    summary: Optional[Summary] = None
+    meeting: Optional[Meeting] = None
     error_message: str = ""
 
-# Use case que recebe LLM service via injeção de dependência
+
 class SummarizeMeetingUC:
     """Orquestra sumarização via LLM com persistência opcional."""
 
@@ -27,7 +29,6 @@ class SummarizeMeetingUC:
         self._llm_service = llm_service
         self._repo = repository
 
-    # Executa sumarização: valida, chama LLM, anexa resumo, persiste
     def execute(self, input_data: SummarizeMeetingInput) -> SummarizeMeetingOutput:
         meeting = input_data.meeting
 
@@ -40,9 +41,11 @@ class SummarizeMeetingUC:
             )
 
         try:
-            # Usa texto formatado com speakers se disponível
             transcript_for_llm = meeting.transcript_formatted or meeting.transcript_text
-            summary: Summary = self._llm_service.summarize(transcript_for_llm)
+            summary: Summary = self._llm_service.summarize(
+                transcript_for_llm,
+                input_data.meeting_type,
+            )
             meeting.summary = summary
 
             if self._repo:

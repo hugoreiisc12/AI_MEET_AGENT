@@ -43,4 +43,4 @@ data/test_audio/
 celery*.log
 
 # ── Distribuição ──────────────────────────────────────────────────────────
-*.zip
+*.zip.env

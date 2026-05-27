@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from domain.entities.meeting import Meeting
 from domain.entities.sentiment_result import SentimentResult
 from infrastructure.llm.langchain_llm_service import LLMServiceError
-from sentiment_analyze import SentimentAnalyzer
+from infrastructure.llm.sentiment_analyzer import SentimentAnalyzer
 
 
 @dataclass

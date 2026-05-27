@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from typing import Optional
-from domain.entities.calendar_event import ICalendarService, CalendarEvent, CalendarServiceError
-
+from domain.entities.calendar_event import CalendarEvent
+from domain.interfaces.calendar_service import ICalendarService, CalendarServiceError
 
 @dataclass
 class FetchMeetingContextInput:

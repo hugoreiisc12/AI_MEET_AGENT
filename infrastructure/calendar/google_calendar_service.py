@@ -20,13 +20,13 @@ Variáveis de ambiente:
 """
 from __future__ import annotations
 
-import os
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from urllib.parse import urlparse
 from typing import Optional
 
-from domain.entities.calendar_event import ICalendarService, CalendarEvent, CalendarServiceError
+from domain.entities.calendar_event import CalendarEvent
+from domain.interfaces.calendar_service import ICalendarService, CalendarServiceError
 
 SCOPES = ["https://www.googleapis.com/auth/calendar.readonly"]
 
@@ -91,7 +91,7 @@ class GoogleCalendarService(ICalendarService):
                 return event
         return None
 
-    # ── Privados ──────────────────────────────────────────────────────────
+    # Privados
 
     def _get_service(self):
         """Carrega credenciais e retorna o serviço da API (lazy)."""

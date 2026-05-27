@@ -14,9 +14,9 @@ from domain.entities.transcript import Transcript, Segment
 from interface.llm_services import ILLMService
 from interface.transcriber import ITranscriber
 from use_cases.transcribe_meeting import TranscribeMeetingUC, TranscribeMeetingInput
-from use_cases.summarize_meeting import SummarizeMeetingUC, SummarizeMeetingInput  # CORRIGIDO: summarize_meeting → summarize_meeting
-from use_cases.chat_with_meeting import ChatWithMeetingUC, ChatWithMeetingInput  # CORRIGIDO: faltava este import
-from infrastructure.json_meeting_repository import JsonMeetingRepository  # CORRIGIDO: repositores → infraestrutura
+from use_cases.summarize_meeting import SummarizeMeetingUC, SummarizeMeetingInput  
+from use_cases.chat_with_meeting import ChatWithMeetingUC, ChatWithMeetingInput  
+from infrastructure.json_meeting_repository import JsonMeetingRepository  
 
 """
 test_full_flow.py — Testa o fluxo completo usando mocks (sem gastar API).

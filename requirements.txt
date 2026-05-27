@@ -5,4 +5,9 @@ playwright>=1.60.0
 langchain>=0.2
 langchain-openai>=0.1
 streamlit>=1.35
-
+fastapi>=0.95
+uvicorn>=0.23
+redis>=5.0
+celery>=5.3
+requests>=2.31
+pyaudio>=0.2.14

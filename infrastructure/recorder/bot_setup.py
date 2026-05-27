@@ -97,6 +97,7 @@ async def setup_bot_profile(
             await asyncio.sleep(2)
             await context.close()
 
+
 # Roda o setup do bot para autenticar e salvar o perfil localmente 
 def main():
     from dotenv import load_dotenv
