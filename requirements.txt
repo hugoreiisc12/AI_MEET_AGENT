@@ -1,13 +1,29 @@
+# LLM / AI
 openai>=1.30
-pydantic-settings>=2.0
-python-dotenv>=1.0
-playwright>=1.60.0
 langchain>=0.2
 langchain-openai>=0.1
-streamlit>=1.35
+
+
+
+# Google Calendar
+google-auth>=2.0
+google-auth-oauthlib>=1.0
+google-api-python-client>=2.0
+
+# Config / infra
+pydantic-settings>=2.0
+python-dotenv>=1.0
+
+# API / Worker
 fastapi>=0.95
 uvicorn>=0.23
 redis>=5.0
 celery>=5.3
 requests>=2.31
+
+# Interface
+streamlit>=1.35
+playwright>=1.60.0
+
+# Áudio
 pyaudio>=0.2.14

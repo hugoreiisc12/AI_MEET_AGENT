@@ -1,5 +1,9 @@
 from fastapi import APIRouter, HTTPException
-from api.meeting import ChatRequest, ChatResponse
+
+# FIX: era `from api.meeting import ...` — arquivo não existe.
+# FIX: ChatRequest e ChatResponse não estavam importados, causando NameError
+#      no response_model= e no type hint do body.
+from api.schemas.meeting import ChatRequest, ChatResponse
 from use_cases.chat_with_meeting import ChatWithMeetingInput
 from presentation.container import get_container
 

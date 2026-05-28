@@ -2,17 +2,25 @@ import uuid
 from pathlib import Path
 from datetime import datetime
 
-from fastapi import APIRouter, UploadFile, File, HTTPException
+from fastapi import APIRouter, UploadFile, File, HTTPException, Body
+from pydantic import BaseModel
 import redis
 
-from api.meeting import UploadResponse, MeetingStatusResponse, ProcessingStatus
+# FIX: era `from api.meeting import ...` — arquivo não existe.
+# O correto é api/schemas/meeting.py
+from api.schemas.meeting import (
+    UploadResponse, MeetingStatusResponse, ProcessingStatus,
+    SummarySchema, TaskSchema, DecisionSchema,
+)
 from config.settings import get_settings
 from presentation.container import get_container
 
+# FIX: rotas registradas na ordem correta para evitar conflito no FastAPI.
+# GET "/" e POST "/bot/done" devem vir ANTES de GET "/{meeting_id}/status",
+# caso contrário o FastAPI interpreta "bot" e "done" como meeting_id.
 router = APIRouter()
 settings = get_settings()
 
-# Estado em memória para status — usado apenas em modo solo
 _status_store: dict[str, ProcessingStatus] = {}
 
 
@@ -40,6 +48,25 @@ def _get_status(meeting_id: str) -> ProcessingStatus | None:
     return _status_store.get(meeting_id)
 
 
+# ── Rotas sem path param — DEVEM vir antes de /{meeting_id}/... ──────────
+
+@router.get("/", response_model=list[MeetingStatusResponse])
+def list_meetings():
+    container = get_container()
+    meetings = container.repository.list_all()
+    return [
+        MeetingStatusResponse(
+            meeting_id=m.id,
+            status=ProcessingStatus.DONE,
+            title=m.title,
+            started_at=m.started_at,
+            duration_minutes=m.duration_minutes,
+            participants=m.participants,
+        )
+        for m in meetings
+    ]
+
+
 @router.post("/upload", response_model=UploadResponse)
 async def upload_meeting(
     file: UploadFile = File(...),
@@ -58,8 +85,6 @@ async def upload_meeting(
 
     _set_status(meeting_id, ProcessingStatus.PENDING)
 
-    # Modo collab → enfileira no Celery
-    # Modo solo → processa direto (bloqueante, mas simples)
     if settings.is_collab:
         from worker.tasks import process_meeting_task
         delay_fn = getattr(process_meeting_task, "delay", None)
@@ -76,6 +101,90 @@ async def upload_meeting(
         message="Áudio recebido. Processamento iniciado.",
     )
 
+
+# FIX: era `@router.post("/bot")` com `meeting_url: str` como query param.
+# URLs do Meet têm caracteres especiais (://, /) que corrompem query strings.
+# Agora usa body Pydantic.
+class SendBotRequest(BaseModel):
+    meeting_url: str
+    title: str = "Reunião"
+
+
+@router.post("/bot")
+async def send_bot_to_meeting(body: SendBotRequest):
+    """
+    Envia o bot para uma reunião Google Meet.
+    Recebe meeting_url e title como JSON body (não query params).
+    """
+    container = get_container()
+
+    if not hasattr(container, "record_meeting") or not container.record_meeting:
+        raise HTTPException(
+            400,
+            "Bot não configurado. Adicione no .env:\n"
+            "  RECORDER_PROVIDER=playwright\n"
+            "  BOT_GOOGLE_EMAIL=seubot@gmail.com\n"
+            "  BOT_GOOGLE_PASSWORD=senha\n"
+            "E execute: python bot_setup.py",
+        )
+
+    def on_meeting_finished(audio_path: str, meeting_title: str) -> None:
+        _process_bot_audio(audio_path, meeting_title)
+
+    from use_cases.record_meeting import SendBotInput
+    result = container.record_meeting.send_bot(
+        SendBotInput(
+            meeting_url=body.meeting_url,
+            title=body.title,
+            on_finished=on_meeting_finished,
+        )
+    )
+
+    if not result.success:
+        raise HTTPException(500, f"Erro ao enviar bot: {result.error_message}")
+
+    return {
+        "session_id": result.session_id,
+        "status": "joining",
+        "message": f"Bot enviado para a reunião. Session ID: {result.session_id}",
+    }
+
+
+# FIX: endpoint que o app.py chama via on_done (antes apontava para /bot-done
+# que não existia em nenhum router)
+class BotDoneRequest(BaseModel):
+    audio_path: str
+    title: str = "Reunião"
+
+
+@router.post("/bot/done")
+async def bot_done(body: BotDoneRequest):
+    """
+    Chamado pelo callback on_done do Streamlit quando o bot termina a reunião.
+    Dispara o processamento (transcrição + resumo) do áudio gravado.
+    """
+    _process_bot_audio(body.audio_path, body.title)
+    return {"status": "processing", "message": "Processamento iniciado."}
+
+
+@router.get("/bot/{session_id}/status")
+def get_bot_status(session_id: str):
+    """Retorna o status atual do bot em uma reunião."""
+    container = get_container()
+
+    if not hasattr(container, "record_meeting") or not container.record_meeting:
+        raise HTTPException(400, "Bot não configurado.")
+
+    status = container.record_meeting.get_status(session_id)
+    return {
+        "session_id": status.session_id,
+        "status": status.status,
+        "duration_minutes": round(status.duration_seconds / 60, 1),
+        "ready": status.status == "done",
+    }
+
+
+# ── Rotas com path param — DEVEM vir depois das rotas fixas ──────────────
 
 @router.get("/{meeting_id}/status", response_model=MeetingStatusResponse)
 def get_status(meeting_id: str):
@@ -105,22 +214,7 @@ def get_status(meeting_id: str):
     )
 
 
-@router.get("/", response_model=list[MeetingStatusResponse])
-def list_meetings():
-    container = get_container()
-    meetings = container.repository.list_all()
-    return [
-        MeetingStatusResponse(
-            meeting_id=m.id,
-            status=ProcessingStatus.DONE,
-            title=m.title,
-            started_at=m.started_at,
-            duration_minutes=m.duration_minutes,
-            participants=m.participants,
-        )
-        for m in meetings
-    ]
-
+# ── Helpers ───────────────────────────────────────────────────────────────
 
 def _process_sync(meeting_id: str, audio_path: str, title: str) -> None:
     """Processamento síncrono — modo solo."""
@@ -152,94 +246,19 @@ def _process_sync(meeting_id: str, audio_path: str, title: str) -> None:
     s_result = container.summarize_meeting.execute(
         SummarizeMeetingInput(meeting=meeting)
     )
+
+    if s_result.success:
+        # FIX: salvar reunião no repositório — sem isso, GET /status nunca a encontra
+        container.repository.save(meeting)
+
     _set_status(
         meeting_id,
         ProcessingStatus.DONE if s_result.success else ProcessingStatus.ERROR,
     )
 
 
-def _map_summary(summary):
-    from api.meeting import SummarySchema, TaskSchema, DecisionSchema
-    return SummarySchema(
-        overview=summary.overview,
-        topics=summary.topics,
-        tasks=[TaskSchema(description=t.description, responsible=t.responsible,
-                         deadline=t.deadline) for t in summary.tasks],
-        decisions=[DecisionSchema(description=d.description, context=d.context)
-                   for d in summary.decisions],
-    )
-
-# Adicione no final de api/routers/meetings.py
-
-
-@router.post("/bot")
-async def send_bot_to_meeting(
-    meeting_url: str,
-    title: str = "Reunião",
-):
-    """
-    Envia o bot para uma reunião Google Meet.
-
-    O bot entra como participante, grava o áudio e ao encerrar
-    processa automaticamente: Whisper → GPT-4o → resumo disponível.
-    """
-    container = get_container()
-
-    if not hasattr(container, "record_meeting") or not container.record_meeting:
-        raise HTTPException(
-            400,
-            "Bot não configurado. Adicione no .env:\n"
-            "  RECORDER_PROVIDER=playwright\n"
-            "  BOT_GOOGLE_EMAIL=seubot@gmail.com\n"
-            "  BOT_GOOGLE_PASSWORD=senha\n"
-            "E execute: python bot_setup.py",
-        )
-
-    # Callback executado quando reunião terminar
-    def on_meeting_finished(audio_path: str, meeting_title: str) -> None:
-        """Processa o áudio assim que o bot sair da reunião."""
-        _process_bot_audio(audio_path, meeting_title)
-
-    from use_cases.record_meeting import SendBotInput
-    result = container.record_meeting.send_bot(
-        SendBotInput(
-            meeting_url=meeting_url,
-            title=title,
-            on_finished=on_meeting_finished,
-        )
-    )
-
-    if not result.success:
-        raise HTTPException(500, f"Erro ao enviar bot: {result.error_message}")
-
-    return {
-        "session_id": result.session_id,
-        "status": "joining",
-        "message": f"Bot enviando para a reunião. Session ID: {result.session_id}",
-    }
-
-
-@router.get("/bot/{session_id}/status")
-def get_bot_status(session_id: str):
-    """Retorna o status atual do bot em uma reunião."""
-    container = get_container()
-
-    if not hasattr(container, "record_meeting") or not container.record_meeting:
-        raise HTTPException(400, "Bot não configurado.")
-
-    status = container.record_meeting.get_status(session_id)
-    return {
-        "session_id": status.session_id,
-        "status": status.status,
-        "duration_minutes": round(status.duration_seconds / 60, 1),
-        "ready": status.status == "done",
-    }
-
-
 def _process_bot_audio(audio_path: str, title: str) -> None:
-    """Processa o áudio do bot: transcreve e resume."""
-    import uuid
-    from datetime import datetime
+    """Processa o áudio do bot: transcreve, resume e persiste."""
     from domain.entities.meeting import Meeting
     from use_cases.transcribe_meeting import TranscribeMeetingInput
     from use_cases.summarize_meeting import SummarizeMeetingInput
@@ -269,8 +288,35 @@ def _process_bot_audio(audio_path: str, title: str) -> None:
 
     _set_status(meeting_id, ProcessingStatus.SUMMARIZING)
     s = container.summarize_meeting.execute(SummarizeMeetingInput(meeting=meeting))
+
+    if s.success:
+        meeting.summary = s.summary
+        # FIX: salvar reunião — sem isso o processamento some após terminar
+        container.repository.save(meeting)
+
     _set_status(
         meeting_id,
         ProcessingStatus.DONE if s.success else ProcessingStatus.ERROR,
     )
     print(f"[Bot] ✅ Reunião processada: {title} ({meeting_id})")
+
+
+def _map_summary(summary) -> SummarySchema:
+    # FIX: era `from api.meeting import ...` — arquivo não existe
+    # Imports já estão no topo do arquivo via api.schemas.meeting
+    return SummarySchema(
+        overview=summary.overview,
+        topics=summary.topics,
+        tasks=[
+            TaskSchema(
+                description=t.description,
+                responsible=t.responsible,
+                deadline=t.deadline,
+            )
+            for t in summary.tasks
+        ],
+        decisions=[
+            DecisionSchema(description=d.description, context=d.context)
+            for d in summary.decisions
+        ],
+    )

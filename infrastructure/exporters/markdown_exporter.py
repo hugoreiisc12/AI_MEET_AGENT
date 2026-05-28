@@ -9,7 +9,7 @@ e como base para os outros exporters.
 from pathlib import Path
 from datetime import datetime
 from domain.entities.meeting import Meeting
-from exporter import IExporter, ExportError
+from domain.interfaces.exporter import IExporter, ExportError
 
 
 class MarkdownExporter(IExporter):

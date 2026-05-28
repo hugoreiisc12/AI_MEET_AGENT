@@ -20,7 +20,7 @@ def run_streamlit() -> None:
     subprocess.run(
         [
             sys.executable, "-m", "streamlit", "run",
-            "presentation/streamlit/app.py",   
+            "presentation/streamlit/app.py",
             "--server.headless", "false",
         ],
         check=True,
@@ -62,7 +62,7 @@ def run_terminal_test(audio_path: str) -> None:
     """
     import uuid
     from datetime import datetime
-    from domain.entities.meeting import Meeting          
+    from domain.entities.meeting import Meeting
     from presentation.container import get_container
     from use_cases.transcribe_meeting import TranscribeMeetingInput
     from use_cases.summarize_meeting import SummarizeMeetingInput
@@ -95,6 +95,7 @@ def run_terminal_test(audio_path: str) -> None:
         participants=transcript.speakers,
         duration_minutes=transcript.duration_minutes,
         audio_path=audio_path,
+        # started_at tem default_factory=datetime.now na entity, não precisa passar
     )
 
     # 3. Resumo
@@ -106,8 +107,16 @@ def run_terminal_test(audio_path: str) -> None:
         print(f" Erro: {s_result.error_message}")
         sys.exit(1)
 
-    meeting = s_result.meeting                         
+    # FIX: era `meeting = s_result.meeting` — SummarizeMeetingUC não devolve
+    # o meeting em s_result.meeting; ele anexa o resumo diretamente em
+    # meeting.summary (o objeto que passamos). Usar s_result.meeting causaria
+    # AttributeError se o campo for None, e perderia o meeting já construído.
+    meeting.summary = s_result.summary
+
     print("\n Resumo gerado:\n")
+    # FIX: era `meeting.summary.formatted` — Summary.formatted é uma @property
+    # que retorna str, não um atributo direto. Funciona, mas só após a linha
+    # acima estar correta. Se s_result.meeting fosse None, teria quebrado antes.
     print(meeting.summary.formatted)
 
     # 4. Chat interativo

@@ -10,6 +10,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 # CORRIGIDO: Imports ajustados para a estrutura real do projeto
 from domain.entities.meeting import Meeting, Summary, Task, Decision
+from domain.entities.meeting_type import MeetingType
 from domain.entities.transcript import Transcript, Segment
 from interface.llm_services import ILLMService
 from interface.transcriber import ITranscriber
@@ -69,7 +70,7 @@ class MockLLMService(ILLMService):
     """LLM falso para testes."""
 
 # Implementação de metodo de sumarização que retorna um Summary fixo, com visão geral, tópicos relevantes e tarefas 
-    def summarize(self, transcript: str) -> Summary:
+    def summarize(self, transcript: str, meeting_type: MeetingType = MeetingType.GENERAL) -> Summary:
         return Summary(
             overview="Reunião de planejamento onde foram definidas tarefas de onboarding e QA, com lançamento da v2.0 marcado para julho.",
             topics=["Revisão do fluxo de onboarding", "Planejamento do sprint de QA", "Lançamento v2.0"],

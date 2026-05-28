@@ -33,6 +33,20 @@ except ImportError:
     celery_app = None  # modo solo — Celery não instalado
 
 
+def _set_status(meeting_id: str, status_value: str) -> None:
+    """
+    Atualiza status no Redis diretamente — sem importar o router da API.
+    FIX: o worker não pode importar _set_status de api/routers/meetings.py
+    pois isso cria dependência circular (worker → api → container → worker).
+    """
+    try:
+        import redis as redis_lib
+        r = redis_lib.from_url(settings.redis_url)
+        r.set(f"status:{meeting_id}", status_value, ex=86400)
+    except Exception:
+        pass  # em modo solo sem Redis, ignora silenciosamente
+
+
 def process_meeting_task_fn(meeting_id: str, audio_path: str, title: str) -> dict:
     """
     Lógica real de processamento — separada do decorator Celery
@@ -46,10 +60,12 @@ def process_meeting_task_fn(meeting_id: str, audio_path: str, title: str) -> dic
     container = get_container()
 
     # 1. Transcrição
+    _set_status(meeting_id, "transcribing")  # FIX: era omitido
     t_result = container.transcribe_meeting.execute(
         TranscribeMeetingInput(audio_path=audio_path, with_diarization=True)
     )
     if not t_result.success:
+        _set_status(meeting_id, "error")      # FIX: era omitido
         return {"status": "error", "error": t_result.error_message}
 
     transcript = t_result.transcript
@@ -65,12 +81,19 @@ def process_meeting_task_fn(meeting_id: str, audio_path: str, title: str) -> dic
     )
 
     # 2. Resumo
+    _set_status(meeting_id, "summarizing")   # FIX: era omitido
     s_result = container.summarize_meeting.execute(
         SummarizeMeetingInput(meeting=meeting)
     )
     if not s_result.success:
+        _set_status(meeting_id, "error")      # FIX: era omitido
         return {"status": "error", "error": s_result.error_message}
 
+    # 3. Persistir reunião no repositório               # FIX: era omitido
+    meeting.summary = s_result.summary
+    container.repository.save(meeting)
+
+    _set_status(meeting_id, "done")           # FIX: era omitido
     return {"status": "done", "meeting_id": meeting_id}
 
 

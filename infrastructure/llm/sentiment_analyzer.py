@@ -84,10 +84,17 @@ class SentimentAnalyzer:
     def _parse(self, raw: str) -> SentimentResult:
         """Converte JSON do LLM em SentimentResult."""
         cleaned = raw.strip()
+
+        # Remove fence de abertura: ```json ou ```
         if cleaned.startswith("```"):
             cleaned = cleaned.split("```")[1]
             if cleaned.startswith("json"):
                 cleaned = cleaned[4:]
+
+        # Remove fence de fechamento residual: ```
+        if cleaned.endswith("```"):
+            cleaned = cleaned[:-3]
+
         cleaned = cleaned.strip()
 
         try:
@@ -120,5 +127,3 @@ class SentimentAnalyzer:
             raise LLMServiceError(
                 f"Sentimento: JSON inválido — {str(e)}\nResposta: {raw[:200]}"
             ) from e
-
-

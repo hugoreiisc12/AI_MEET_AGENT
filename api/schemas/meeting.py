@@ -5,13 +5,11 @@ from enum import Enum
 
 
 class ProcessingStatus(str, Enum):
-    PENDING = "pending"
+    PENDING      = "pending"
     TRANSCRIBING = "transcribing"
-    SUMMARIZING = "summarizing"
-    DONE = "done"
-    ERROR = "error"
-
-
+    SUMMARIZING  = "summarizing"
+    DONE         = "done"
+    ERROR        = "error"
 class TaskSchema(BaseModel):
     description: str
     responsible: str

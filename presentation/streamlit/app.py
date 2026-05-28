@@ -20,7 +20,6 @@ from use_cases.transcribe_meeting import TranscribeMeetingInput
 from use_cases.summarize_meeting import SummarizeMeetingInput
 from use_cases.chat_with_meeting import ChatWithMeetingInput
 
-# Import requests para upload em modo colaborativo
 try:
     import requests
     HAS_REQUESTS = True
@@ -31,19 +30,15 @@ settings = get_settings()
 
 @st.cache_resource
 def get_app_container():
-    """Carrega container uma única vez usando cache."""
     return get_container()
 
 container = get_app_container()
 
 st.set_page_config(page_title="Meet Agent", page_icon="🎤", layout="wide")
 
-# ── Session state ─────────────────────────────────────────────────────────
-
-MAX_CHAT_HISTORY = 50  # Limite para evitar consumo excessivo de memória
+MAX_CHAT_HISTORY = 50
 
 def _init():
-    """Inicializa valores padrão do session state."""
     defaults = {
         "meeting": None,
         "chat_history": [],
@@ -55,10 +50,7 @@ def _init():
 
 _init()
 
-# ── Sidebar ───────────────────────────────────────────────────────────────
-
 def _render_sidebar():
-    """Renderiza barra lateral com reuniões salvas."""
     with st.sidebar:
         st.title("🎤 Meet Agent")
         badge = "Solo" if settings.is_solo else "Colaborativo"
@@ -88,12 +80,9 @@ def _render_sidebar():
 
 _render_sidebar()
 
-# ── Tela principal ────────────────────────────────────────────────────────
-
 st.title("🎤 Meet Agent")
 
 if st.session_state.meeting is None:
-    # ── MODO SOLO: upload manual ──────────────────────────────────
     if settings.is_solo:
         st.subheader("Nova reunião")
         title = st.text_input("Título", placeholder="Sprint Planning — Semana 22")
@@ -141,113 +130,110 @@ if st.session_state.meeting is None:
                 st.error(s.error_message)
                 st.stop()
 
-            # O resumo foi gerado e anexado à reunião pelo use case
             meeting.summary = s.summary
             st.session_state.meeting = meeting
             st.session_state.chat_history = []
             st.rerun()
 
-    # No presentation/streamlit/app.py
-# Substitua o bloco do modo collab que menciona a extensão Chrome por este:
+    else:
+        st.subheader("Enviar bot para a reunião")
 
-# ── MODO COLLAB: envio do bot ──────────────────────────────────────
-else:
-    st.subheader("Enviar bot para a reunião")
+        if hasattr(container, "record_meeting") and container.record_meeting:
+            active = container.record_meeting.list_active_sessions()
+            if active:
+                st.info(f"🤖 Bot ativo em {len(active)} reunião(ões)")
+                for s in active:
+                    st.caption(f"Session {s.session_id} — {s.status} — {s.duration_seconds/60:.1f} min")
 
-    # Mostra sessões ativas do bot
-    if hasattr(container, "record_meeting") and container.record_meeting:
-        active = container.record_meeting.list_active_sessions()
-        if active:
-            st.info(f"🤖 Bot ativo em {len(active)} reunião(ões)")
-            for s in active:
-                st.caption(f"Session {s.session_id} — {s.status} — {s.duration_seconds/60:.1f} min")
+        col_form, col_status = st.columns([1, 1], gap="large")
 
-    col_form, col_status = st.columns([1, 1], gap="large")
+        with col_form:
+            st.markdown("### 🤖 Enviar bot")
+            meet_url = st.text_input(
+                "Link do Google Meet",
+                placeholder="https://meet.google.com/xxx-yyyy-zzz",
+            )
+            meeting_title = st.text_input(
+                "Título da reunião",
+                placeholder="Sprint Planning — Semana 22",
+            )
 
-    with col_form:
-        st.markdown("### 🤖 Enviar bot")
-        meet_url = st.text_input(
-            "Link do Google Meet",
-            placeholder="https://meet.google.com/xxx-yyyy-zzz",
-        )
-        meeting_title = st.text_input(
-            "Título da reunião",
-            placeholder="Sprint Planning — Semana 22",
-        )
-
-        if st.button(
-            "🚀 Enviar bot para a reunião",
-            disabled=not (meet_url and meeting_title),
-            type="primary",
-            use_container_width=True,
-        ):
-            if not hasattr(container, "record_meeting") or not container.record_meeting:
-                st.error(
-                    "Bot não configurado. Adicione no `.env`:\n"
-                    "```\nRECORDER_PROVIDER=playwright\n"
-                    "BOT_GOOGLE_EMAIL=seubot@gmail.com\n"
-                    "BOT_GOOGLE_PASSWORD=senha\n```\n"
-                    "E execute: `python bot_setup.py`"
-                )
-            else:
-                with st.spinner("Enviando bot para a reunião..."):
-                    from use_cases.record_meeting import SendBotInput
-
-                    def on_done(audio_path, title):
-                        # Callback — quando reunião terminar, dispara processamento
-                        import requests as req
-                        req.post(
-                            f"http://{settings.api_host}:{settings.api_port}/meetings/bot-done",
-                            json={"audio_path": audio_path, "title": title},
-                            timeout=5,
-                        )
-
-                    result = container.record_meeting.send_bot(
-                        SendBotInput(
-                            meeting_url=meet_url,
-                            title=meeting_title,
-                        )
-                    )
-
-                if result.success:
-                    st.success("✅ Bot enviado! Ele está entrando na reunião agora.")
-                    st.info(
-                        f"**Session ID:** `{result.session_id}`\n\n"
-                        "Quando a reunião terminar, o resumo aparecerá automaticamente "
-                        "no histórico de reuniões."
+            if st.button(
+                "🚀 Enviar bot para a reunião",
+                disabled=not (meet_url and meeting_title),
+                type="primary",
+                use_container_width=True,
+            ):
+                if not hasattr(container, "record_meeting") or not container.record_meeting:
+                    st.error(
+                        "Bot não configurado. Adicione no `.env`:\n"
+                        "```\nRECORDER_PROVIDER=playwright\n"
+                        "BOT_GOOGLE_EMAIL=seubot@gmail.com\n"
+                        "BOT_GOOGLE_PASSWORD=senha\n```\n"
+                        "E execute: `python bot_setup.py`"
                     )
                 else:
-                    st.error(f"Erro: {result.error_message}")
+                    with st.spinner("Enviando bot para a reunião..."):
+                        from use_cases.record_meeting import SendBotInput
 
-    with col_status:
-        st.markdown("### 📋 Como funciona")
-        st.markdown("""
-        1. Cole o link do Google Meet
-        2. Clique em **Enviar bot**
-        3. O **Meet Agent 🤖** entra na reunião como participante
-        4. Quando a reunião terminar, ele sai automaticamente
-        5. O áudio é transcrito e o resumo fica disponível aqui
+                        # FIX: callback agora aponta para /meetings/bot/done (endpoint existente)
+                        # e é efetivamente passado para SendBotInput via on_finished=
+                        def on_done(audio_path: str, title: str) -> None:
+                            try:
+                                import requests as req
+                                req.post(
+                                    f"http://{settings.api_host}:{settings.api_port}/meetings/bot/done",
+                                    json={"audio_path": audio_path, "title": title},
+                                    timeout=10,
+                                )
+                            except Exception:
+                                pass  # falha silenciosa — bot já terminou, UI não pode ser notificada
 
-        **Nota:** Use uma conta Google dedicada para o bot.
-        Configure com `python bot_setup.py`.
-        """)
+                        result = container.record_meeting.send_bot(
+                            SendBotInput(
+                                meeting_url=meet_url,
+                                title=meeting_title,
+                                on_finished=on_done,  # FIX: era omitido, callback nunca disparava
+                            )
+                        )
 
-    # Entrada por ID de sessão (para buscar reunião já processada)
-    st.divider()
-    st.markdown("### 🔍 Buscar reunião processada")
-    meeting_id = st.text_input(
-        "ID da reunião",
-        placeholder="Cole o ID gerado após o processamento",
-    )
-    if st.button("Buscar", disabled=not meeting_id):
-        found_meeting: Meeting | None = container.repository.find_by_id(meeting_id.strip())
-        if found_meeting and found_meeting.is_summarized:
-            st.session_state.meeting = found_meeting
-            st.session_state.chat_history = []
-            st.rerun()
-        else:
-            st.warning("Reunião não encontrada ou ainda em processamento.")
-# ── Dashboard ─────────────────────────────────────────────────────────────
+                    if result.success:
+                        st.success("✅ Bot enviado! Ele está entrando na reunião agora.")
+                        st.info(
+                            f"**Session ID:** `{result.session_id}`\n\n"
+                            "Quando a reunião terminar, o resumo aparecerá automaticamente "
+                            "no histórico de reuniões."
+                        )
+                    else:
+                        st.error(f"Erro: {result.error_message}")
+
+        with col_status:
+            st.markdown("### 📋 Como funciona")
+            st.markdown("""
+            1. Cole o link do Google Meet
+            2. Clique em **Enviar bot**
+            3. O **Meet Agent 🤖** entra na reunião como participante
+            4. Quando a reunião terminar, ele sai automaticamente
+            5. O áudio é transcrito e o resumo fica disponível aqui
+
+            **Nota:** Use uma conta Google dedicada para o bot.
+            Configure com `python bot_setup.py`.
+            """)
+
+        st.divider()
+        st.markdown("### 🔍 Buscar reunião processada")
+        meeting_id = st.text_input(
+            "ID da reunião",
+            placeholder="Cole o ID gerado após o processamento",
+        )
+        if st.button("Buscar", disabled=not meeting_id):
+            found_meeting: Meeting | None = container.repository.find_by_id(meeting_id.strip())
+            if found_meeting and found_meeting.is_summarized:
+                st.session_state.meeting = found_meeting
+                st.session_state.chat_history = []
+                st.rerun()
+            else:
+                st.warning("Reunião não encontrada ou ainda em processamento.")
 
 if st.session_state.meeting is None:
     st.info("Selecione ou carregue uma reunião para ver o dashboard.")
@@ -259,7 +245,6 @@ else:
     summary = meeting.summary
 
     st.subheader(f"📋 {meeting.title}")
-    # Formatar data compatível com Windows, Linux e Mac
     date_str = meeting.started_at.strftime("%d de %B de %Y às %H:%M").lstrip("0")
     st.caption(date_str)
 
@@ -310,7 +295,6 @@ else:
                     st.write(msg["content"])
 
         if question := st.chat_input("Ex: Quem ficou com a tarefa X?"):
-            # Limitar histórico para evitar consumo excessivo de memória
             if len(st.session_state.chat_history) >= MAX_CHAT_HISTORY:
                 st.session_state.chat_history = st.session_state.chat_history[-MAX_CHAT_HISTORY:]
 
@@ -328,7 +312,7 @@ else:
                     answer = result.answer if result.success else f"⚠️ {result.error_message}"
                 except Exception as e:
                     st.error(f"Erro no chat: {str(e)}")
-                    st.session_state.chat_history.pop()  # Remove a pergunta que causou erro
+                    st.session_state.chat_history.pop()
                     st.stop()
 
             st.session_state.chat_history.append({"role": "assistant", "content": answer})

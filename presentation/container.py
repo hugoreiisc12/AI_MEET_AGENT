@@ -11,7 +11,6 @@ from functools import lru_cache
 from typing import Optional, Any
 from config.settings import get_settings, AppMode
 
-from infrastructure.transcriber.whisper_transcriber import WhisperTranscriber
 from infrastructure.llm.langchain_llm_service import LangChainLLMService
 from infrastructure.json_meeting_repository import JsonMeetingRepository
 
@@ -23,12 +22,27 @@ from use_cases.analyze_sentiment import AnalyzeSentimentUC
 from use_cases.fetch_meeting_context import FetchMeetingContextUC
 
 
+def _build_transcriber(settings):
+    """
+    Instancia o transcriber correto baseado em USE_REAL_DIARIZATION no .env.
+
+    - False (padrão): WhisperTranscriber com pseudo-diarização por pausa
+    - True: WhisperWithDiarization — Whisper + pyannote.audio (requer HUGGINGFACE_TOKEN)
+    """
+    if settings.use_real_diarization:
+        from infrastructure.transcriber.whisper_with_diarization import WhisperWithDiarization
+        return WhisperWithDiarization()
+
+    from infrastructure.transcriber.whisper_transcriber import WhisperTranscriber
+    return WhisperTranscriber()
+
+
 def _build_common(settings, repository) -> dict:
     """
     Monta os componentes compartilhados entre Solo e Collab.
     Elimina duplicação — qualquer mudança feita aqui vale para os dois modos.
     """
-    transcriber = WhisperTranscriber()
+    transcriber = _build_transcriber(settings)
     llm         = LangChainLLMService()
 
     # Use cases principais
@@ -68,7 +82,6 @@ def _build_common(settings, repository) -> dict:
             )
         else:
             from infrastructure.recorder.playwright_bot_recorder import PlaywrightBotRecorder
-            from use_cases.record_meeting import RecordMeetingUC
 
             recorder = PlaywrightBotRecorder(
                 google_email=email,
@@ -89,7 +102,7 @@ def _build_common(settings, repository) -> dict:
         "chat_with_meeting":     chat_with_meeting,
         "analyze_sentiment":     analyze_sentiment,
         "fetch_meeting_context": fetch_meeting_context,
-        "record_meeting":        record_meeting,      # ← adicionado
+        "record_meeting":        record_meeting,
         "repository":            repository,
     }
 
@@ -153,7 +166,11 @@ class CollabContainer:
 
 
 def build_container() -> SoloContainer | CollabContainer:
-    """Factory — instancia o container correto baseado no APP_MODE."""
+    """Factory — instancia o container correto baseado no APP_MODE.
+
+    Use esta função em testes quando precisar de um container fresco
+    a cada execução, sem depender do cache de get_container().
+    """
     settings = get_settings()
     if settings.app_mode == AppMode.COLLAB:
         return CollabContainer()
@@ -162,5 +179,14 @@ def build_container() -> SoloContainer | CollabContainer:
 
 @lru_cache(maxsize=1)
 def get_container() -> SoloContainer | CollabContainer:
-    """Singleton por processo."""
+    """Singleton por processo — retorna sempre o mesmo container.
+
+    ATENÇÃO: o cache sobrevive a mudanças em get_settings(). Se em testes
+    você fizer get_settings.cache_clear(), chame também get_container.cache_clear()
+    para forçar a criação de um novo container com as settings atualizadas.
+
+    Em testes, prefira build_container() diretamente para evitar estado compartilhado:
+
+        container = build_container()  # sempre novo, sem cache
+    """
     return build_container()
