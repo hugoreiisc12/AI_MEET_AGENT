@@ -10,7 +10,7 @@ import ast
 from pathlib import Path
 from collections import defaultdict
 
-
+# Classe Instrutora  para configuração do Google Calendar API: 
 class ProjectValidator:
     def __init__(self, root_path="."):
         self.root = Path(root_path)
@@ -154,7 +154,7 @@ class ProjectValidator:
                 print(f"  ⚠️  {file_name} (MISSING)")
                 self.issues["missing_files"].append(file_name)
         print()
-
+# Verificação de imports específicos (exemplo para Google Calendar Service )
     def check_imports(self):
         """Test critical imports"""
         print("🔗 Testing Critical Imports...\n")
@@ -165,8 +165,8 @@ class ProjectValidator:
             ("interface.transcriber", "ITranscriber"),
             ("interface.llm_services", "ILLMService"),
             ("config.settings", "get_settings"),
-            ("domain.entities.meeting", "Meeting"),           # ← corrigido
-            ("domain.entities.meeting_type", "MeetingType"),  # ← corrigido
+            ("domain.entities.meeting", "Meeting"),           
+            ("domain.entities.meeting_type", "MeetingType"),  
             ("domain.entities.transcript", "Transcript"),
             ("domain.entities.calendar_event", "CalendarEvent"),
             ("domain.entities.sentiment_result", "SentimentResult"),
@@ -190,10 +190,10 @@ class ProjectValidator:
             try:
                 mod = __import__(module_name, fromlist=[class_name])
                 getattr(mod, class_name)
-                print(f"  ✅ {module_name}.{class_name}")  # ← emoji restaurado
+                print(f"  ✅ {module_name}.{class_name}")  
             except Exception as e:
                 failed += 1
-                print(f"  ❌ {module_name}.{class_name}")  # ← emoji restaurado
+                print(f"  ❌ {module_name}.{class_name}")  
                 print(f"     └─ {str(e)[:80]}")
                 self.issues["imports"].append(f"{module_name}.{class_name}: {str(e)[:60]}")
 
@@ -211,7 +211,7 @@ class ProjectValidator:
                 print(f"    - {tf.name}")
 
         print()
-
+# Generate final report 
     def generate_report(self):
         """Generate final report"""
         print("=" * 60)

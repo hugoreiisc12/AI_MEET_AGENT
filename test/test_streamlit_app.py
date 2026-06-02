@@ -22,7 +22,7 @@ from domain.entities.meeting_type import MeetingType
 
 # Fixtures para criar dados de teste realistas
 @pytest.fixture
-def semple_meeting() -> Meeting:
+def sample_meeting() -> Meeting:
     return Meeting(
         id=str(uuid.uuid4()),
         title="Sprint Planning",
@@ -57,7 +57,7 @@ def test_retorna_meeting_com_sucesso(mock_transcriber, mock_llm_service, sample_
     """ process_audio deve retornar Meeting quando transcrição e resumo funcionam """
     from use_cases.transcribe_meeting import TranscribeMeetingUC, TranscribeMeetingInput
     from use_cases.summarize_meeting import SummarizeMeetingUC, SummarizeMeetingInput
-    from infrastructure.json_meeting_repor import JsonMeetingRepository
+    from infrastructure.json_meeting_repository import JsonMeetingRepository
 
     audio_path = str(tmp_path / "audio.wav")
     Path(audio_path).write_bytes(b"fake")
@@ -112,7 +112,7 @@ def test_falha_no_resumo_retorna_none(mock_transcriber, mock_llm_service_error, 
 class TestSaveTaskState:
 
     def test_persiste_tarefa_concluida(self, sample_meeting, tmp_path):
-        from infrastructure.json_meeting_repor import JsonMeetingRepository
+        from infrastructure.json_meeting_repository import JsonMeetingRepository
 
         repo = JsonMeetingRepository(storage_path=str(tmp_path / "meetings"))
         sample_meeting.summary.tasks[0].done = True

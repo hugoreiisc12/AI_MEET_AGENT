@@ -24,17 +24,31 @@ from use_cases.fetch_meeting_context import FetchMeetingContextUC
 
 def _build_transcriber(settings):
     """
-    Instancia o transcriber correto baseado em USE_REAL_DIARIZATION no .env.
+    Instancia o transcriber correto baseado nas settings.
 
-    - False (padrão): WhisperTranscriber com pseudo-diarização por pausa
-    - True: WhisperWithDiarization — Whisper + pyannote.audio (requer HUGGINGFACE_TOKEN)
+    Decisão em duas etapas:
+      1. API ou local? → WHISPER_TRANSCRIBER=api|local
+      2. Se local, com diarização real? → USE_REAL_DIARIZATION=true|false
+
+    Combinações:
+      WHISPER_TRANSCRIBER=api  + USE_REAL_DIARIZATION=false → WhisperTranscriber (API OpenAI)
+      WHISPER_TRANSCRIBER=api  + USE_REAL_DIARIZATION=true  → WhisperWithDiarization (API + pyannote)
+      WHISPER_TRANSCRIBER=local + USE_REAL_DIARIZATION=false → WhisperLocalTranscriber
+      WHISPER_TRANSCRIBER=local + USE_REAL_DIARIZATION=true  → WhisperLocalTranscriber + pyannote (futuro)
     """
+    use_local = settings.use_local_whisper
+
+    if use_local:
+        from infrastructure.transcriber.whisper_local_transcriber import WhisperLocalTranscriber
+        return WhisperLocalTranscriber()
+
+    # API OpenAI
     if settings.use_real_diarization:
         from infrastructure.transcriber.whisper_with_diarization import WhisperWithDiarization
         return WhisperWithDiarization()
 
-    from infrastructure.transcriber.whisper_transcriber import WhisperTranscriber
-    return WhisperTranscriber()
+    from infrastructure.transcriber.whisper_transcriber import WhisperLocalTranscriber
+    return WhisperLocalTranscriber()
 
 
 def _build_common(settings, repository) -> dict:
@@ -45,17 +59,14 @@ def _build_common(settings, repository) -> dict:
     transcriber = _build_transcriber(settings)
     llm         = LangChainLLMService()
 
-    # Use cases principais
     transcribe_meeting = TranscribeMeetingUC(transcriber)
     summarize_meeting  = SummarizeMeetingUC(llm, repository)
     chat_with_meeting  = ChatWithMeetingUC(llm)
 
-    # Fase 6 — sentimento
     from infrastructure.llm.sentiment_analyzer import SentimentAnalyzer
     sentiment_analyzer = SentimentAnalyzer(llm_client=llm._llm)
     analyze_sentiment  = AnalyzeSentimentUC(analyzer=sentiment_analyzer)
 
-    # Fase 6 — calendar (opcional via .env)
     fetch_meeting_context = None
     if getattr(settings, "enable_calendar", False):
         from infrastructure.calendar.google_calendar_service import GoogleCalendarService
@@ -65,7 +76,6 @@ def _build_common(settings, repository) -> dict:
         )
         fetch_meeting_context = FetchMeetingContextUC(calendar)
 
-    # Bot de reunião (substitui extensão Chrome)
     record_meeting = None
     recorder_provider = getattr(settings, "recorder_provider", "none")
 
@@ -108,12 +118,6 @@ def _build_common(settings, repository) -> dict:
 
 
 class SoloContainer:
-    """
-    Modo individual — tudo local, sem dependências externas.
-    Funciona sem Docker, sem banco, sem Redis.
-    """
-
-    # Explicit attributes for static analysis and autocompletion
     repository: JsonMeetingRepository
     record_meeting: Any | None
     transcribe_meeting: TranscribeMeetingUC
@@ -129,15 +133,6 @@ class SoloContainer:
 
 
 class CollabContainer:
-    """
-    Modo colaborativo — Postgres + Celery.
-    Requer: DATABASE_URL e REDIS_URL no .env.
-
-    Nota: PostgresMeetingRepository ainda não implementado.
-    Usa JsonMeetingRepository como fallback com aviso.
-    """
-
-    # Explicit attributes for static analysis and autocompletion
     repository: JsonMeetingRepository
     record_meeting: Any | None
     transcribe_meeting: TranscribeMeetingUC
@@ -166,11 +161,7 @@ class CollabContainer:
 
 
 def build_container() -> SoloContainer | CollabContainer:
-    """Factory — instancia o container correto baseado no APP_MODE.
-
-    Use esta função em testes quando precisar de um container fresco
-    a cada execução, sem depender do cache de get_container().
-    """
+    """Factory sem cache — use em testes para obter container sempre fresco."""
     settings = get_settings()
     if settings.app_mode == AppMode.COLLAB:
         return CollabContainer()
@@ -179,14 +170,10 @@ def build_container() -> SoloContainer | CollabContainer:
 
 @lru_cache(maxsize=1)
 def get_container() -> SoloContainer | CollabContainer:
-    """Singleton por processo — retorna sempre o mesmo container.
+    """Singleton por processo.
 
-    ATENÇÃO: o cache sobrevive a mudanças em get_settings(). Se em testes
-    você fizer get_settings.cache_clear(), chame também get_container.cache_clear()
-    para forçar a criação de um novo container com as settings atualizadas.
-
-    Em testes, prefira build_container() diretamente para evitar estado compartilhado:
-
-        container = build_container()  # sempre novo, sem cache
+    ATENÇÃO: se fizer get_settings.cache_clear() em testes,
+    chame também get_container.cache_clear().
+    Em testes prefira build_container() diretamente.
     """
     return build_container()

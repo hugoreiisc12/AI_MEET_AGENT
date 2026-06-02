@@ -22,6 +22,7 @@ from infrastructure.transcriber.pyannote_diarizer import (
     PyannoteDiarizer,
     DiarizationSegment,
 )
+from infrastructure.transcriber.whisper_local_transcriber import WhisperLocalTranscriber
 from infrastructure.transcriber.whisper_transcriber import WhisperTranscriber
 from config.settings import get_settings
 
@@ -41,10 +42,12 @@ class WhisperWithDiarization(ITranscriber):
     ) -> None:
         """
         Args:
-            whisper:   Transcritor base (padrão: WhisperTranscriber)
+            whisper:   Transcritor base (padrão: WhisperTranscriber ou WhisperLocalTranscriber)
             diarizer:  Diarizador (padrão: construído a partir do .env)
         """
-        self._whisper = whisper or WhisperTranscriber()
+        self._whisper = whisper or (
+            WhisperLocalTranscriber() if get_settings().use_local_whisper else WhisperTranscriber()
+        )
         self._diarizer = diarizer or self._build_diarizer()
 
     # ── Interface pública (implementa ITranscriber) ──────────────────────

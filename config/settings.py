@@ -17,8 +17,15 @@ class Settings(BaseSettings):
     # ── OpenAI ───────────────────────────────────────────────────────
     openai_api_key: str = ""
     openai_model: str = "gpt-4o"
-    whisper_model: str = "whisper-1"
+    whisper_model: str = "whisper-1"        # usado pelo WhisperTranscriber (API)
     whisper_language: str = "pt"
+
+    # ── Whisper Local ─────────────────────────────────────────────────
+    # Usado pelo WhisperLocalTranscriber (roda na máquina, sem API)
+    # WHISPER_TRANSCRIBER=local no .env ativa este modo
+    whisper_transcriber: str = "api"        # "api" | "local"
+    whisper_local_model: str = "medium"     # tiny | base | small | medium | large | large-v2 | large-v3
+    whisper_device: str = "cpu"             # "cpu" | "cuda"
 
     # ── Storage ───────────────────────────────────────────────────────
     storage_path: str = "data/meetings"
@@ -50,7 +57,7 @@ class Settings(BaseSettings):
     enable_calendar: bool = False
 
     # ── Provider LLM ─────────────────────────────────────────────────
-    llm_provider: str = "openai"          # "openai", "ollama" ou "openrouter"
+    llm_provider: str = "openai"            # "openai" | "ollama" | "openrouter"
 
     # Ollama (local)
     ollama_base_url: str = "http://localhost:11434/v1"
@@ -87,6 +94,10 @@ class Settings(BaseSettings):
     @property
     def is_ollama(self) -> bool:
         return self.llm_provider == "ollama"
+
+    @property
+    def use_local_whisper(self) -> bool:
+        return self.whisper_transcriber == "local"
 
     model_config = {
         "env_file": ".env",

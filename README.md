@@ -49,6 +49,7 @@ pip install -r requirements.txt
 APP_MODE=solo
 OPENAI_API_KEY=
 OPENAI_MODEL=gpt-4o
+WHISPER_TRANSCRIBER=api
 WHISPER_MODEL=whisper-1
 WHISPER_LANGUAGE=pt
 
@@ -64,9 +65,18 @@ BOT_NAME=Meet Agent
 BOT_HEADLESS=false
 ```
 
+Para usar Whisper local, altere:
+
+```env
+WHISPER_TRANSCRIBER=local
+WHISPER_LOCAL_MODEL=medium
+WHISPER_DEVICE=cpu
+```
+
 Notas:
 - Para usar bot no Meet, defina `RECORDER_PROVIDER=playwright` e credenciais do bot.
-- O projeto tambem possui suporte a LLM local via variaveis como `LLM_PROVIDER` e `OLLAMA_*`.
+- O projeto também suporta LLM local via variáveis como `LLM_PROVIDER` e `OLLAMA_*`.
+- Whisper local requer `pip install openai-whisper torch`.
 
 ## Executando
 
@@ -117,3 +127,42 @@ python -m pyright
 - Imports e nomes de modulo de recorder normalizados para `infrastructure/recorder`.
 - Ajustes de tipagem aplicados em rotas/API e dashboard Streamlit.
 - Dependencias de API/fila adicionadas: `fastapi`, `uvicorn`, `redis`, `celery`.
+
+## Testes
+
+- Executar testes com `pytest`:
+
+```bash
+pytest -q
+```
+
+- Cheque de tipagem com `pyright`:
+
+```bash
+python -m pyright
+```
+
+## Docker / Compose
+
+- Rodar com Docker Compose (ex.: produção local):
+
+```bash
+docker compose up --build
+```
+
+- Arquivo principal: `docker-compose.yml`.
+
+## Como empacotar (zip)
+
+Se quiser gerar um snapshot do estado atual do projeto (excluindo ambientes virtuais), você pode rodar no diretório raiz:
+
+```bash
+zip -r IA_GOOGLE_MEET_$(date +%Y%m%d).zip . -x "*/.venv/*" "*/venv/*" "*.pyc" "__pycache__/*" "data/*"
+```
+
+O comando acima cria um arquivo `IA_GOOGLE_MEET_YYYYMMDD.zip` no diretório atual ignorando pastas de ambiente, caches e a pasta `data` para reduzir o tamanho.
+
+## Contato
+
+Para dúvidas ou contribuições, abra uma issue ou PR neste repositório.
+

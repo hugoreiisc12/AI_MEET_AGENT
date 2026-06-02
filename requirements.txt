@@ -27,3 +27,7 @@ playwright>=1.60.0
 
 # Áudio
 pyaudio>=0.2.14
+
+# Gravação ativa
+brew install ffmpeg  (macOS)
+ apt install ffmpeg   (Linux)

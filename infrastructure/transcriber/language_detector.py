@@ -11,6 +11,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional
 
+from config.settings import get_settings
+from infrastructure.transcriber.whisper_local_transcriber import WhisperLocalTranscriber
+
 SUPPORTED_LANGUAGES = {
     "pt": "Português",
     "en": "English",
@@ -46,18 +49,43 @@ class LanguageDetector:
     def __init__(self, target_language: str = "pt") -> None:
         self._target = target_language
 
-    def detect(self, audio_path: str, client) -> DetectedLanguage:
+    def detect(self, audio_path: str, client=None) -> DetectedLanguage:
         """
         Detecta o idioma de um arquivo de áudio.
 
         Args:
             audio_path: Caminho para o arquivo de áudio
-            client:     Cliente OpenAI já instanciado
+            client:     Cliente OpenAI já instanciado (opcional em modo local)
 
         Returns:
             DetectedLanguage com código, nome e se precisa de tradução
         """
+        settings = get_settings()
+
+        if settings.use_local_whisper:
+            try:
+                local = WhisperLocalTranscriber()
+                transcript = local.transcribe(audio_path)
+                code = transcript.language or self._target
+                name = SUPPORTED_LANGUAGES.get(code, code.upper())
+                return DetectedLanguage(
+                    code=code,
+                    name=name,
+                    confidence=1.0,
+                    needs_translation=(code != self._target),
+                )
+            except Exception:
+                return DetectedLanguage(
+                    code=self._target,
+                    name=SUPPORTED_LANGUAGES.get(self._target, self._target),
+                    confidence=0.0,
+                    needs_translation=False,
+                )
+
         try:
+            if client is None:
+                raise ValueError("client é necessário para detecção via Whisper API")
+
             with open(audio_path, "rb") as f:
                 # Pede apenas os primeiros 30s para detecção rápida
                 response = client.audio.transcriptions.create(

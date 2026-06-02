@@ -235,25 +235,39 @@ class PlaywrightBotRecorder:
             session.error_message = f"Erro ao salvar áudio: {exc}"
 
     # ── Detectar fim da reunião ────────────────────────────────────────────
+async def _wait_until_meeting_ends(self, page) -> None:
+    initial_count = await self._get_participant_count(page)
+    left_count = 0
 
-    async def _wait_until_meeting_ends(self, page) -> None:
-        """
-        Faz polling a cada _POLL_INTERVAL_SECONDS verificando se algum dos
-        seletores de 'reunião encerrada' apareceu na página.
-        Respeita _MAX_RECORDING_SECONDS como timeout de segurança.
-        """
-        elapsed = 0
+    while elapsed < self._MAX_RECORDING_SECONDS:
+        await asyncio.sleep(self._POLL_INTERVAL_SECONDS)
+        elapsed += self._POLL_INTERVAL_SECONDS
 
-        while elapsed < self._MAX_RECORDING_SECONDS:
-            await asyncio.sleep(self._POLL_INTERVAL_SECONDS)
-            elapsed += self._POLL_INTERVAL_SECONDS
+        # Verifica seletores de tela de encerramento
+        for selector in self._SEL_MEETING_ENDED:
+            try:
+                if await page.query_selector(selector):
+                    return
+            except Exception:
+                continue
 
-            for selector in self._SEL_MEETING_ENDED:
-                try:
-                    element = await page.query_selector(selector)
-                    if element:
-                        return  # Reunião terminou
-                except Exception:
-                    continue
+        # Verifica se 3+ participantes saíram
+        current_count = await self._get_participant_count(page)
+        if current_count < initial_count - 2:  # 3 ou mais saíram
+            return
 
-        # Timeout atingido — encerra mesmo assim
+async def _get_participant_count(self, page) -> int:
+    """Conta participantes ativos na reunião."""
+    try:
+        count = await page.evaluate("""
+            (() => {
+                const participants = document.querySelectorAll(
+                    '[data-participant-id], [data-ssrc]'
+                );
+                return participants.length;
+            })()
+        """)
+        return int(count or 0)
+    except Exception:
+        return 0
+        
