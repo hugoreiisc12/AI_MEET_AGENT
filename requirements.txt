@@ -29,5 +29,7 @@ playwright>=1.60.0
 pyaudio>=0.2.14
 
 # Gravação ativa
-brew install ffmpeg  (macOS)
- apt install ffmpeg   (Linux)
+# ffmpeg é uma dependência de sistema usada para decodificar/formatar áudio
+# gerado pelo recorder e pelo Whisper local. Instale-o antes de usar o projeto:
+#   brew install ffmpeg   (macOS)
+#   sudo apt install ffmpeg    (Linux)

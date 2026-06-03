@@ -11,13 +11,13 @@ class AppMode(str, Enum):
 
 class Settings(BaseSettings):
 
-    # ── Modo de operação ──────────────────────────────────────────────
+    #  Modo de operação 
     app_mode: AppMode = AppMode.SOLO
 
-    # ── OpenAI ───────────────────────────────────────────────────────
+    #  OpenAI
     openai_api_key: str = ""
     openai_model: str = "gpt-4o"
-    whisper_model: str = "whisper-1"        # usado pelo WhisperTranscriber (API)
+    whisper_model: str = "whisper-1"     
     whisper_language: str = "pt"
 
     # ── Whisper Local ─────────────────────────────────────────────────

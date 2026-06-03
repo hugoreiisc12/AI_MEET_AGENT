@@ -120,6 +120,10 @@ class PlaywrightBotRecorder:
                 args=[
                     "--use-fake-ui-for-media-stream",   # libera getUserMedia sem popup
                     "--disable-blink-features=AutomationControlled",
+                    "--disable-background-timer-throttling",
+                    "--disable-renderer-backgrounding",
+                    "--disable-backgrounding-occluded-windows",
+                    "--autoplay-policy=no-user-gesture-required",
                 ],
             )
             page = await context.new_page()
@@ -235,39 +239,42 @@ class PlaywrightBotRecorder:
             session.error_message = f"Erro ao salvar áudio: {exc}"
 
     # ── Detectar fim da reunião ────────────────────────────────────────────
-async def _wait_until_meeting_ends(self, page) -> None:
-    initial_count = await self._get_participant_count(page)
-    left_count = 0
+    async def _wait_until_meeting_ends(self, page) -> None:
+        initial_count = await self._get_participant_count(page)
+        elapsed = 0
 
-    while elapsed < self._MAX_RECORDING_SECONDS:
-        await asyncio.sleep(self._POLL_INTERVAL_SECONDS)
-        elapsed += self._POLL_INTERVAL_SECONDS
+        while elapsed < self._MAX_RECORDING_SECONDS:
+            await asyncio.sleep(self._POLL_INTERVAL_SECONDS)
+            elapsed += self._POLL_INTERVAL_SECONDS
 
-        # Verifica seletores de tela de encerramento
-        for selector in self._SEL_MEETING_ENDED:
-            try:
-                if await page.query_selector(selector):
-                    return
-            except Exception:
-                continue
+            # Verifica seletores de tela de encerramento
+            for selector in self._SEL_MEETING_ENDED:
+                try:
+                    element = await page.query_selector(selector)
+                    if element:
+                        return
+                except Exception:
+                    continue
 
-        # Verifica se 3+ participantes saíram
-        current_count = await self._get_participant_count(page)
-        if current_count < initial_count - 2:  # 3 ou mais saíram
-            return
+            # Verifica se não há participantes ativos na reunião
+            current_count = await self._get_participant_count(page)
+            if initial_count > 0 and current_count == 0:
+                return
 
-async def _get_participant_count(self, page) -> int:
-    """Conta participantes ativos na reunião."""
-    try:
-        count = await page.evaluate("""
-            (() => {
-                const participants = document.querySelectorAll(
-                    '[data-participant-id], [data-ssrc]'
-                );
-                return participants.length;
-            })()
-        """)
-        return int(count or 0)
-    except Exception:
-        return 0
+        # Timeout máximo atingido, finaliza com o áudio salvo até aqui.
+
+    async def _get_participant_count(self, page) -> int:
+        """Conta participantes ativos na reunião."""
+        try:
+            count = await page.evaluate("""
+                (() => {
+                    const participants = document.querySelectorAll(
+                        '[data-participant-id], [data-ssrc]'
+                    );
+                    return participants.length;
+                })()
+            """)
+            return int(count or 0)
+        except Exception:
+            return 0
         

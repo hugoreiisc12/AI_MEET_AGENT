@@ -66,7 +66,8 @@ def _render_sidebar():
 
         for m in meetings:
             label = m.title[:30] + ("..." if len(m.title) > 30 else "")
-            if st.button(f"📋 {label}", key=f"load_{m.id}", use_container_width=True):
+            button_label = f"📋 {label} — {m.id[:8]}"
+            if st.button(button_label, key=f"load_{m.id}", use_container_width=True):
                 st.session_state.meeting = m
                 st.session_state.chat_history = []
                 st.rerun()
@@ -245,6 +246,7 @@ else:
     summary = meeting.summary
 
     st.subheader(f"📋 {meeting.title}")
+    st.markdown(f"**Meeting ID:** `{meeting.id}`")
     date_str = meeting.started_at.strftime("%d de %B de %Y às %H:%M").lstrip("0")
     st.caption(date_str)
 
