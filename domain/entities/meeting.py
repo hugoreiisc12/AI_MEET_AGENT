@@ -90,12 +90,28 @@ class Meeting:
     transcript_formatted: str = ""  # Transcrição formatada com speakers
     summary: Optional[Summary] = None  # Resumo gerado por LLM
     participants: list[str] = field(default_factory=list)  # Participantes
+    participant_info: dict[str, str] = field(default_factory=dict)  # ID -> nome/email do participante
     duration_minutes: float = 0.0  # Duração em minutos
 
     # Verifica se foi transcrita
     @property
     def is_transcribed(self) -> bool:
         return bool(self.transcript_text)
+
+    def identify_user(self, user_id: str | None) -> str | None:
+        """Retorna o nome/label do usuário se o ID corresponder a um participante."""
+        if not user_id:
+            return None
+        normalized = str(user_id).strip().lower()
+
+        for pid, label in self.participant_info.items():
+            if normalized == str(pid).strip().lower() or normalized == str(label).strip().lower():
+                return label
+
+        if normalized in [str(p).strip().lower() for p in self.participants]:
+            return normalized
+
+        return None
 
     # Verifica se foi sumarizada
     @property

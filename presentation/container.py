@@ -11,8 +11,10 @@ from functools import lru_cache
 from typing import Optional, Any
 from config.settings import get_settings, AppMode
 
+from domain.entities.calendar_event import CalendarEvent
 from infrastructure.llm.langchain_llm_service import LangChainLLMService
 from infrastructure.json_meeting_repository import JsonMeetingRepository
+from infrastructure.sqlite_meeting_repository import SqliteMeetingRepository
 
 from use_cases.record_meeting import RecordMeetingUC
 from use_cases.transcribe_meeting import TranscribeMeetingUC
@@ -68,13 +70,25 @@ def _build_common(settings, repository) -> dict:
     analyze_sentiment  = AnalyzeSentimentUC(analyzer=sentiment_analyzer)
 
     fetch_meeting_context = None
+    calendar_event: CalendarEvent | None = None
     if getattr(settings, "enable_calendar", False):
         from infrastructure.calendar.google_calendar_service import GoogleCalendarService
+        from use_cases.fetch_meeting_context import FetchMeetingContextInput
+
         calendar = GoogleCalendarService(
             credentials_path=getattr(settings, "google_credentials_path", "credentials.json"),
             token_path=getattr(settings, "google_token_path", "token.json"),
         )
         fetch_meeting_context = FetchMeetingContextUC(calendar)
+
+        try:
+            context_output = fetch_meeting_context.execute(
+                FetchMeetingContextInput(use_current=True)
+            )
+            if context_output.success:
+                calendar_event = context_output.event
+        except Exception:
+            calendar_event = None
 
     record_meeting = None
     recorder_provider = getattr(settings, "recorder_provider", "none")
@@ -112,6 +126,7 @@ def _build_common(settings, repository) -> dict:
         "chat_with_meeting":     chat_with_meeting,
         "analyze_sentiment":     analyze_sentiment,
         "fetch_meeting_context": fetch_meeting_context,
+        "calendar_event":        calendar_event,
         "record_meeting":        record_meeting,
         "repository":            repository,
     }
@@ -125,6 +140,7 @@ class SoloContainer:
     chat_with_meeting: ChatWithMeetingUC
     analyze_sentiment: AnalyzeSentimentUC
     fetch_meeting_context: FetchMeetingContextUC | None
+    calendar_event: CalendarEvent | None
 
     def __init__(self) -> None:
         settings   = get_settings()
@@ -133,30 +149,29 @@ class SoloContainer:
 
 
 class CollabContainer:
-    repository: JsonMeetingRepository
+    repository: SqliteMeetingRepository
     record_meeting: Any | None
     transcribe_meeting: TranscribeMeetingUC
     summarize_meeting: SummarizeMeetingUC
     chat_with_meeting: ChatWithMeetingUC
     analyze_sentiment: AnalyzeSentimentUC
     fetch_meeting_context: FetchMeetingContextUC | None
+    calendar_event: CalendarEvent | None
 
     def __init__(self) -> None:
-        import warnings
         settings = get_settings()
 
-        if not settings.database_url:
-            raise RuntimeError(
-                "APP_MODE=collab requer DATABASE_URL no .env.\n"
-                "Exemplo: DATABASE_URL=postgresql+asyncpg://user:pass@localhost/meetagent"
-            )
+        repository_path = settings.repository_path
+        if settings.database_url:
+            if settings.database_url.startswith("sqlite"):
+                repository_path = settings.database_url
+            else:
+                raise RuntimeError(
+                    "APP_MODE=collab suporta apenas SQLite local no momento. "
+                    "Use REPOSITORY_PATH=./data/meetings.db ou DATABASE_URL=sqlite:///data/meetings.db"
+                )
 
-        warnings.warn(
-            "CollabContainer usando JsonMeetingRepository (storage local). "
-            "Implemente PostgresMeetingRepository para produção real.",
-            stacklevel=2,
-        )
-        repository = JsonMeetingRepository(settings.storage_path)
+        repository = SqliteMeetingRepository(repository_path)
         self.__dict__.update(_build_common(settings, repository))
 
 

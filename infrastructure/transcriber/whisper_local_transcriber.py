@@ -1,5 +1,4 @@
-"""Alias para o transcritor local de Whisper.
-
+"""
 O container espera importar `WhisperLocalTranscriber` de
 `infrastructure.transcriber.whisper_local_transcriber`.
 

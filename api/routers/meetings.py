@@ -2,12 +2,12 @@ import uuid
 from pathlib import Path
 from datetime import datetime
 
-from fastapi import APIRouter, UploadFile, File, HTTPException, Body
-from pydantic import BaseModel
+from fastapi import APIRouter, UploadFile, File, HTTPException, Body, BackgroundTasks
+from collections import Counter
+from pydantic import BaseModel, Field
 import redis
 
-# FIX: era `from api.meeting import ...` — arquivo não existe.
-# O correto é api/schemas/meeting.py
+
 from api.schemas.meeting import (
     UploadResponse, MeetingStatusResponse, ProcessingStatus,
     SummarySchema, TaskSchema, DecisionSchema,
@@ -128,8 +128,18 @@ async def send_bot_to_meeting(body: SendBotRequest):
             "E execute: python bot_setup.py",
         )
 
-    def on_meeting_finished(audio_path: str, meeting_title: str) -> None:
-        _process_bot_audio(audio_path, meeting_title)
+    def on_meeting_finished(
+        audio_path: str,
+        meeting_title: str,
+        participant_info: dict[str, str],
+        speaker_observations: list[dict[str, float | str]],
+    ) -> None:
+        _process_bot_audio(
+            audio_path,
+            meeting_title,
+            participant_info,
+            speaker_observations,
+        )
 
     from use_cases.record_meeting import SendBotInput
     result = container.record_meeting.send_bot(
@@ -155,15 +165,23 @@ async def send_bot_to_meeting(body: SendBotRequest):
 class BotDoneRequest(BaseModel):
     audio_path: str
     title: str = "Reunião"
+    participant_info: dict[str, str] = Field(default_factory=dict)
+    speaker_observations: list[dict[str, float | str]] = Field(default_factory=list)
 
 
 @router.post("/bot/done")
-async def bot_done(body: BotDoneRequest):
+async def bot_done(body: BotDoneRequest, background_tasks: BackgroundTasks):
     """
     Chamado pelo callback on_done do Streamlit quando o bot termina a reunião.
-    Dispara o processamento (transcrição + resumo) do áudio gravado.
+    Dispara o processamento (transcrição + resumo) do áudio gravado em background.
     """
-    _process_bot_audio(body.audio_path, body.title)
+    background_tasks.add_task(
+        _process_bot_audio,
+        body.audio_path,
+        body.title,
+        body.participant_info,
+        body.speaker_observations,
+    )
     return {"status": "processing", "message": "Processamento iniciado."}
 
 
@@ -257,7 +275,12 @@ def _process_sync(meeting_id: str, audio_path: str, title: str) -> None:
     )
 
 
-def _process_bot_audio(audio_path: str, title: str) -> None:
+def _process_bot_audio(
+    audio_path: str,
+    title: str,
+    participant_info: dict[str, str] | None = None,
+    speaker_observations: list[dict[str, float | str]] | None = None,
+) -> None:
     """Processa o áudio do bot: transcreve, resume e persiste."""
     from domain.entities.meeting import Meeting
     from use_cases.transcribe_meeting import TranscribeMeetingInput
@@ -275,6 +298,20 @@ def _process_bot_audio(audio_path: str, title: str) -> None:
         _set_status(meeting_id, ProcessingStatus.ERROR)
         return
 
+    speaker_mapping = _infer_speaker_aliases(
+        t.transcript,
+        participant_info or {},
+        speaker_observations or [],
+    )
+    if speaker_mapping:
+        t.transcript.apply_speaker_mapping(speaker_mapping)
+
+    participants = (
+        list(dict.fromkeys(participant_info.values()))
+        if participant_info
+        else t.transcript.speakers
+    )
+
     meeting = Meeting(
         id=meeting_id,
         title=title,
@@ -282,16 +319,20 @@ def _process_bot_audio(audio_path: str, title: str) -> None:
         audio_path=audio_path,
         transcript_text=t.transcript.full_text,
         transcript_formatted=t.transcript.formatted,
-        participants=t.transcript.speakers,
+        participants=participants,
+        participant_info=participant_info or {},
         duration_minutes=t.transcript.duration_minutes,
     )
+
+    # Persistir reunião transcrita imediatamente para que ela apareça na lista mesmo
+    # se a sumarização falhar.
+    container.repository.save(meeting)
 
     _set_status(meeting_id, ProcessingStatus.SUMMARIZING)
     s = container.summarize_meeting.execute(SummarizeMeetingInput(meeting=meeting))
 
     if s.success:
         meeting.summary = s.summary
-        # FIX: salvar reunião — sem isso o processamento some após terminar
         container.repository.save(meeting)
 
     _set_status(
@@ -299,6 +340,48 @@ def _process_bot_audio(audio_path: str, title: str) -> None:
         ProcessingStatus.DONE if s.success else ProcessingStatus.ERROR,
     )
     print(f"[Bot] ✅ Reunião processada: {title} ({meeting_id})")
+
+
+def _infer_speaker_aliases(
+    transcript,
+    participant_info: dict[str, str] | None,
+    speaker_observations: list[dict[str, float | str]] | None,
+) -> dict[str, str]:
+    """Infer speaker ID -> email/nome usando amostras de speaker ativo e timestamps."""
+    if not transcript.segments or not participant_info or not speaker_observations:
+        return {}
+
+    speaker_counts: dict[str, Counter[str]] = {}
+
+    for observation in speaker_observations:
+        timestamp = observation.get("timestamp")
+        participant_id = observation.get("participant_id")
+        if timestamp is None or not participant_id or not isinstance(participant_id, str):
+            continue
+
+        try:
+            timestamp = float(timestamp)
+        except Exception:
+            continue
+
+        for segment in transcript.segments:
+            if segment.start <= timestamp < segment.end:
+                counts = speaker_counts.setdefault(segment.speaker, Counter())
+                counts[participant_id] += 1
+                break
+
+    mapping: dict[str, str] = {}
+    for speaker, counts in speaker_counts.items():
+        if not counts:
+            continue
+        best_participant = max(counts.items(), key=lambda item: item[1])[0]
+        mapping[speaker] = participant_info.get(best_participant) or best_participant
+
+    if not mapping and len(transcript.speakers) == 1 and len(participant_info) == 1:
+        only_person = next(iter(participant_info.values()))
+        mapping[transcript.speakers[0]] = only_person
+
+    return mapping
 
 
 def _map_summary(summary) -> SummarySchema:

@@ -15,7 +15,7 @@ from typing import Optional, Callable
 class SendBotInput:
     meeting_url: str
     title: str = "Reunião"
-    on_finished: Optional[Callable[[str, str], None]] = None
+    on_finished: Optional[Callable[[str, str, dict[str, str], list[dict[str, float | str]]], None]] = None
 
 
 @dataclass
@@ -56,10 +56,12 @@ class RecordMeetingUC:
             if on_finished:
                 def _watch():
                     thread.join()
-                    if session.status == "done":
+                    if session.status == "done" and not session.error_message:
                         on_finished(
                             str(session.output_path),
                             input_data.title,
+                            session.participant_info,
+                            session.speaker_observations,
                         )
                 threading.Thread(target=_watch, daemon=True).start()
 

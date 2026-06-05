@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from datetime import datetime
 from typing import Optional
 from enum import Enum
@@ -46,9 +46,11 @@ class UploadResponse(BaseModel):
 
 class ChatRequest(BaseModel):
     question: str
-    history: list[dict] = []
+    history: list[dict] = Field(default_factory=list)
+    request_user_id: str | None = None
 
 
 class ChatResponse(BaseModel):
     answer: str
     meeting_id: str
+    identified_user: Optional[str] = None

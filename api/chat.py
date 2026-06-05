@@ -26,10 +26,15 @@ def chat(meeting_id: str, body: ChatRequest):
             meeting=meeting,
             question=body.question,
             history=body.history,
+            request_user_id=body.request_user_id,
         )
     )
 
     if not result.success:
         raise HTTPException(500, result.error_message)
 
-    return ChatResponse(answer=result.answer, meeting_id=meeting_id)
+    return ChatResponse(
+        answer=result.answer,
+        meeting_id=meeting_id,
+        identified_user=getattr(result, "identified_user", None),
+    )

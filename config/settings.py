@@ -29,6 +29,7 @@ class Settings(BaseSettings):
 
     # ── Storage ───────────────────────────────────────────────────────
     storage_path: str = "data/meetings"
+    repository_path: str = "data/meetings.db"
     database_url: str = ""
     audio_storage_path: str = "data/audio"
     s3_bucket: str = ""
@@ -57,7 +58,9 @@ class Settings(BaseSettings):
     enable_calendar: bool = False
 
     # ── Provider LLM ─────────────────────────────────────────────────
-    llm_provider: str = "openai"            # "openai" | "ollama" | "openrouter"
+    llm_provider: str = "ollama"
+    llm_temperature: float = 0.0
+    llm_top_p: float = 1.0
 
     # Ollama (local)
     ollama_base_url: str = "http://localhost:11434/v1"
@@ -76,6 +79,8 @@ class Settings(BaseSettings):
     bot_chrome_profile: str = "./bot_chrome_profile"
     bot_name: str = "Meet Agent 🤖"
     bot_headless: bool = False
+    notification_email: str = ""
+    enable_email: bool = False
 
     # ── Properties ───────────────────────────────────────────────────
 

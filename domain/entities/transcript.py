@@ -33,6 +33,7 @@ class Transcript:
     language: str = "pt"  # Idioma da transcrição
     created_at: datetime = field(default_factory=datetime.now)  # Quando foi criada
     audio_path: Optional[str] = None  # Caminho do arquivo de áudio original
+    speaker_aliases: dict[str, str] = field(default_factory=dict)  # Mapeamento speaker -> email/nome real
 
     # Verifica se tem diarização (identificação de speakers)
     @property
@@ -43,8 +44,22 @@ class Transcript:
     @property
     def formatted(self) -> str:
         if self.has_diarization:
-            return "\n".join(str(seg) for seg in self.segments)
+            return "\n".join(
+                f"[{int(seg.start // 60):02d}:{int(seg.start % 60):02d}] {self.get_speaker_label(seg.speaker)}: {seg.text}"
+                for seg in self.segments
+            )
         return self.full_text
+
+    def get_speaker_label(self, speaker_id: str) -> str:
+        """Retorna o nome real do speaker, se houver mapeamento."""
+        return self.speaker_aliases.get(speaker_id, speaker_id)
+
+    def apply_speaker_mapping(self, mapping: dict[str, str]) -> None:
+        """Substitui os ids de speaker pelos nomes ou emails fornecidos."""
+        self.speaker_aliases.update(mapping)
+        for segment in self.segments:
+            if segment.speaker in mapping:
+                segment.speaker = mapping[segment.speaker]
 
     # Calcula duração total da reunião em minutos
     @property

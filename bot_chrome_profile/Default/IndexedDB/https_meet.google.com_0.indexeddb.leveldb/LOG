@@ -1,3 +1,2 @@
-2026/06/03-00:52:30.847 1962500 Reusing MANIFEST /Users/hugo/Desktop/IA_GOOGLE MEET/bot_chrome_profile/Default/IndexedDB/https_meet.google.com_0.indexeddb.leveldb/MANIFEST-000001
-2026/06/03-00:52:30.847 1962500 Recovering log #3
-2026/06/03-00:52:30.848 1962500 Reusing old log /Users/hugo/Desktop/IA_GOOGLE MEET/bot_chrome_profile/Default/IndexedDB/https_meet.google.com_0.indexeddb.leveldb/000003.log 
+2026/06/05-00:35:39.653 19e9848 Creating DB /Users/hugo/Desktop/IA_GOOGLE MEET/bot_chrome_profile/Default/IndexedDB/https_meet.google.com_0.indexeddb.leveldb since it was missing.
+2026/06/05-00:35:39.656 19e9848 Reusing MANIFEST /Users/hugo/Desktop/IA_GOOGLE MEET/bot_chrome_profile/Default/IndexedDB/https_meet.google.com_0.indexeddb.leveldb/MANIFEST-000001

@@ -150,13 +150,21 @@ if st.session_state.meeting is None:
 
         with col_form:
             st.markdown("### 🤖 Enviar bot")
+            default_meet_url = ""
+            default_title = ""
+            if getattr(container, "calendar_event", None):
+                default_meet_url = container.calendar_event.meet_url if container.calendar_event else ""
+                default_title = container.calendar_event.title if container.calendar_event else ""
+
             meet_url = st.text_input(
                 "Link do Google Meet",
                 placeholder="https://meet.google.com/xxx-yyyy-zzz",
+                value=default_meet_url,
             )
             meeting_title = st.text_input(
                 "Título da reunião",
                 placeholder="Sprint Planning — Semana 22",
+                value=default_title,
             )
 
             if st.button(
@@ -179,20 +187,31 @@ if st.session_state.meeting is None:
 
                         # FIX: callback agora aponta para /meetings/bot/done (endpoint existente)
                         # e é efetivamente passado para SendBotInput via on_finished=
-                        def on_done(audio_path: str, title: str) -> None:
+                        def on_done(
+                            audio_path: str,
+                            title: str,
+                            participant_info: dict[str, str],
+                            speaker_observations: list[dict[str, float | str]],
+                        ) -> None:
                             try:
                                 import requests as req
                                 req.post(
                                     f"http://{settings.api_host}:{settings.api_port}/meetings/bot/done",
-                                    json={"audio_path": audio_path, "title": title},
+                                    json={
+                                        "audio_path": audio_path,
+                                        "title": title,
+                                        "participant_info": participant_info,
+                                        "speaker_observations": speaker_observations,
+                                    },
                                     timeout=10,
                                 )
                             except Exception:
                                 pass  # falha silenciosa — bot já terminou, UI não pode ser notificada
 
+                        safe_meet_url = meet_url or ""
                         result = container.record_meeting.send_bot(
                             SendBotInput(
-                                meeting_url=meet_url,
+                                meeting_url=safe_meet_url,
                                 title=meeting_title,
                                 on_finished=on_done,  # FIX: era omitido, callback nunca disparava
                             )

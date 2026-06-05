@@ -10,6 +10,7 @@ class ChatWithMeetingInput:
     meeting: Meeting  # Reunião para contexto
     question: str  # Pergunta do usuário
     history: list[dict] = field(default_factory=list)  # Histórico: [{"role": "user"|"assistant", "content": str}]
+    request_user_id: str | None = None
 
 
 # Dados de saída do chat
@@ -18,6 +19,7 @@ class ChatWithMeetingOutput:
     answer: str  # Resposta gerada pela LLM
     success: bool  # Status da operação
     error_message: str = ""
+    identified_user: str | None = None
 
 
 # Use case que recebe LLM service via injeção de dependência
@@ -45,7 +47,10 @@ class ChatWithMeetingUC:
                 context=context,
                 history=input_data.history,
             )
-            return ChatWithMeetingOutput(answer=answer, success=True)
+            identified_user = meeting.identify_user(input_data.request_user_id)
+            if identified_user:
+                answer = f"Identifiquei que você é {identified_user}. {answer}"
+            return ChatWithMeetingOutput(answer=answer, success=True, identified_user=identified_user)
 
         except LLMServiceError as e:
             return ChatWithMeetingOutput(

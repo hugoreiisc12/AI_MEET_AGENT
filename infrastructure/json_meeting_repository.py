@@ -16,7 +16,10 @@ class JsonMeetingRepository(IMeetingRepository):
 
     def __init__(self, storage_path: str | None = None) -> None:
         path = storage_path or get_settings().storage_path
-        self._base = Path(path)
+        base = Path(path)
+        if not base.is_absolute():
+            base = Path(__file__).resolve().parents[1] / path
+        self._base = base.resolve()
         self._base.mkdir(parents=True, exist_ok=True)
 
     # Salva reunião em arquivo JSON individual
@@ -56,6 +59,7 @@ class JsonMeetingRepository(IMeetingRepository):
             "transcript_text": m.transcript_text,
             "transcript_formatted": m.transcript_formatted,
             "participants": m.participants,
+            "participant_info": m.participant_info,
             "duration_minutes": m.duration_minutes,
             "summary": None,
         }
@@ -95,6 +99,7 @@ class JsonMeetingRepository(IMeetingRepository):
             transcript_text=data.get("transcript_text", ""),
             transcript_formatted=data.get("transcript_formatted", ""),
             participants=data.get("participants", []),
+            participant_info=data.get("participant_info", {}),
             duration_minutes=data.get("duration_minutes", 0.0),
             summary=summary,
         )

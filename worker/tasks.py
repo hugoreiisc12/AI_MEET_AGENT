@@ -80,6 +80,8 @@ def process_meeting_task_fn(meeting_id: str, audio_path: str, title: str) -> dic
         duration_minutes=transcript.duration_minutes,
     )
 
+    container.repository.save(meeting)
+
     # 2. Resumo
     _set_status(meeting_id, "summarizing")   # FIX: era omitido
     s_result = container.summarize_meeting.execute(

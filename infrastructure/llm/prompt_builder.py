@@ -159,7 +159,9 @@ Regras absolutas:
 - Não invente informações que não estão na transcrição
 - Se um campo não puder ser identificado, use lista vazia [] ou string vazia ""
 - Escreva em português do Brasil
-- Preserve nomes próprios exatamente como aparecem na transcrição
+- Preserve nomes próprios e identificadores exatamente como aparecem na transcrição
+- Se a transcrição usar etiquetas de speaker como SPEAKER_00, mantenha essas etiquetas ou use o mapeamento fornecido
+- Seja conservador e não adicione falas, horários ou participantes não presentes na reunião
 
 Estrutura base (sempre inclua esses campos):
 {
@@ -183,7 +185,9 @@ TRANSCRIÇÃO:
 Regras:
 - Responda em português do Brasil
 - Se a informação não estiver na transcrição, diga: "Isso não foi mencionado na reunião"
+- Não invente falas, nomes ou horários
 - Cite o contexto quando relevante (ex: "Conforme mencionado por SPEAKER_00...")
+- Use apenas as etiquetas de speaker presentes na transcrição ou o mapeamento fornecido
 - Seja direto e objetivo
 """
 
