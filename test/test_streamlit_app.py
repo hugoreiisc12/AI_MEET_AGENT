@@ -28,8 +28,8 @@ def sample_meeting() -> Meeting:
         title="Sprint Planning",
         started_at=datetime(2024, 6, 1, 10, 0),
         transcript_text="Ana: Bom dia. Carlos: Olá",
-        transcript_formatted="[00:00] SPEAKER__00: Bom Dia .\n[00:05] SPEAKER _001: Olá ",
-        participants=["SPEAKER_00", "SPEAKER_001"],
+        transcript_formatted="[00:00] SPEAKER_00: Bom Dia .\n[00:05] SPEAKER_01: Olá ",
+        participants=["SPEAKER_00", "SPEAKER_01"],
         duration_minutes=42.0,
         summary=Summary(
             overview="Reunião de planejamento da sprint 22",

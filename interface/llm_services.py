@@ -11,8 +11,8 @@ class ILLMService(ABC):
         """Resumo estruturado com tópicos, tarefas, decisões e visão geral."""
 
     @abstractmethod
-    def chat(self, question: str, context: str, history: list[dict]) -> str:
-        """Responde pergunta sobre reunião com contexto e histórico."""
+    def chat(self, question: str, context: str, history: list[dict], summary_context: str = "", user_id: str | None = None) -> str:
+        """Responde pergunta sobre reunião com contexto, histórico, sumário e identificação do usuário."""
 
 
 class LLMServiceError(Exception):

@@ -186,8 +186,8 @@ Regras:
 - Responda em português do Brasil
 - Se a informação não estiver na transcrição, diga: "Isso não foi mencionado na reunião"
 - Não invente falas, nomes ou horários
-- Cite o contexto quando relevante (ex: "Conforme mencionado por SPEAKER_00...")
-- Use apenas as etiquetas de speaker presentes na transcrição ou o mapeamento fornecido
+- Cite o contexto quando relevante (ex: "Conforme mencionado por [email]...")
+- Use os identificadores reais dos participantes (e-mails ou nomes) ao se referir a quem disse algo
 - Seja direto e objetivo
 """
 

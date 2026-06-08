@@ -14,17 +14,9 @@ class Settings(BaseSettings):
     #  Modo de operação 
     app_mode: AppMode = AppMode.SOLO
 
-    #  OpenAI
-    openai_api_key: str = ""
-    openai_model: str = "gpt-4o"
-    whisper_model: str = "whisper-1"     
-    whisper_language: str = "pt"
-
     # ── Whisper Local ─────────────────────────────────────────────────
-    # Usado pelo WhisperLocalTranscriber (roda na máquina, sem API)
-    # WHISPER_TRANSCRIBER=local no .env ativa este modo
-    whisper_transcriber: str = "api"        # "api" | "local"
-    whisper_local_model: str = "medium"     # tiny | base | small | medium | large | large-v2 | large-v3
+    whisper_language: str = "pt"
+    whisper_model: str = "medium"           # tiny | base | small | medium | large | large-v2 | large-v3
     whisper_device: str = "cpu"             # "cpu" | "cuda"
 
     # ── Storage ───────────────────────────────────────────────────────
@@ -33,6 +25,10 @@ class Settings(BaseSettings):
     database_url: str = ""
     audio_storage_path: str = "data/audio"
     s3_bucket: str = ""
+
+    # ── MongoDB ─────────────────────────────────────────────────────
+    mongo_uri: str = ""
+    mongo_db_name: str = "meetagent"
 
     # ── Cache e API ───────────────────────────────────────────────────
     redis_url: str = "redis://localhost:6379/0"
@@ -66,12 +62,6 @@ class Settings(BaseSettings):
     ollama_base_url: str = "http://localhost:11434/v1"
     ollama_model: str = "nemotron-mini"
 
-    # OpenRouter
-    openrouter_api_key: str = ""
-    openrouter_model: str = "openai/gpt-4o"
-    openrouter_site_url: str = ""
-    openrouter_site_name: str = "Meet Agent"
-
     # ── Bot de reunião ────────────────────────────────────────────────
     recorder_provider: str = "none"
     bot_google_email: str = ""
@@ -93,16 +83,16 @@ class Settings(BaseSettings):
         return self.app_mode == AppMode.COLLAB
 
     @property
-    def is_openrouter(self) -> bool:
-        return self.llm_provider == "openrouter"
-
-    @property
     def is_ollama(self) -> bool:
         return self.llm_provider == "ollama"
 
     @property
     def use_local_whisper(self) -> bool:
-        return self.whisper_transcriber == "local"
+        return True
+
+    @property
+    def use_mongo(self) -> bool:
+        return bool(self.mongo_uri)
 
     model_config = {
         "env_file": ".env",

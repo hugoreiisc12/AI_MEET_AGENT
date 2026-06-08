@@ -26,7 +26,7 @@ Assistente para reunioes com transcricao, resumo automatico e chat sobre o conte
 
 - Python 3.10+
 - `ffmpeg` instalado no sistema (dependência de áudio/Whisper local)
-- Chave de API para o provedor LLM que voce usar (ex.: OpenAI) ou configuração local (ex.: Ollama)
+- [Ollama](https://ollama.ai) instalado e rodando (`ollama serve`)
 
 ## Dependências do sistema por SO
 
@@ -56,7 +56,7 @@ Assistente para reunioes com transcricao, resumo automatico e chat sobre o conte
 
 O pacote base usado pelo projeto está em `requirements.txt`:
 
-- `openai`, `langchain`, `langchain-openai`
+- `langchain`, `langchain-openai`
 - `google-auth`, `google-auth-oauthlib`, `google-api-python-client`
 - `pydantic-settings`, `python-dotenv`
 - `fastapi`, `uvicorn`, `redis`, `celery`, `requests`
@@ -74,7 +74,7 @@ Para diarização real e Whisper local avançado, rode:
 pip install -r requirements_diarization.txt
 ```
 
-Se usar Whisper local sem diarização, instale:
+Para Whisper local, instale:
 
 ```bash
 pip install openai-whisper torch
@@ -99,28 +99,22 @@ pip install -r requirements.txt
 
 ```env
 APP_MODE=solo
-OPENAI_API_KEY=
-OPENAI_MODEL=gpt-4o
-WHISPER_TRANSCRIBER=api
-WHISPER_MODEL=whisper-1
+WHISPER_MODEL=medium
+WHISPER_DEVICE=cpu
 WHISPER_LANGUAGE=pt
 
 STORAGE_PATH=data/meetings
 AUDIO_STORAGE_PATH=data/audio
 MAX_AUDIO_SIZE_MB=25
 
+LLM_PROVIDER=ollama
+OLLAMA_BASE_URL=http://localhost:11434/v1
+OLLAMA_MODEL=nemotron-mini
+
 RECORDER_PROVIDER=none
 BOT_GOOGLE_EMAIL=
 BOT_GOOGLE_PASSWORD=
 BOT_CHROME_PROFILE=./bot_chrome_profile
-```
-
-Para usar Whisper local, altere:
-
-```env
-WHISPER_TRANSCRIBER=local
-WHISPER_LOCAL_MODEL=medium
-WHISPER_DEVICE=cpu
 ```
 
 ---
@@ -264,23 +258,9 @@ Meeting ID: `550e8400-e29b-41d4-a716-446655440000`
 
 ---
 
-## Configuração da LLM para Chat
+## Configuração da LLM para Chat (Ollama)
 
-Quando você carrega uma reunião e faz perguntas, o sistema usa uma LLM configurada como **especialista em reuniões**.
-
-### LLM Padrão: OpenAI (com custo)
-
-```env
-LLM_PROVIDER=openai
-OPENAI_API_KEY=sua_chave_aqui
-OPENAI_MODEL=gpt-4o
-```
-
-Requer chave de API do OpenAI. Respostas rápidas, modelo mais capaz.
-
-### LLM Local: Ollama (sem custo, roda offline)
-
-Para usar uma LLM local gratuita:
+Quando você carrega uma reunião e faz perguntas, o sistema usa uma LLM local via **Ollama**.
 
 1. Instale Ollama: https://ollama.ai
 
@@ -300,18 +280,6 @@ Para usar uma LLM local gratuita:
    ```bash
    ollama pull nemotron-mini
    ```
-
-5. Ao fazer perguntas no chat, a LLM local responderá como especialista em reuniões.
-
-### Alternativa: OpenRouter (acesso a múltiplos modelos)
-
-```env
-LLM_PROVIDER=openrouter
-OPENROUTER_API_KEY=sua_chave
-OPENROUTER_MODEL=openai/gpt-4o
-OPENROUTER_SITE_URL=https://seu-site.com
-OPENROUTER_SITE_NAME=Meet Agent
-```
 
 ---
 
@@ -374,7 +342,7 @@ python -m pyright
 - Ajustes de tipagem aplicados em rotas/API e dashboard Streamlit.
 - Dependencias de API/fila adicionadas: `fastapi`, `uvicorn`, `redis`, `celery`.
 - Meeting ID exibido no histórico e detalhes de reunião.
-- Chat com LLM especialista em reuniões (OpenAI, Ollama ou OpenRouter).
+- Chat com LLM especialista em reuniões via Ollama (local).
 - Modo collab com Playwright bot recorder totalmente funcional.
 - Suporte completo para Windows, macOS e Linux.
 
@@ -416,9 +384,7 @@ python -m playwright install chromium
 ### Chat não responde
 
 - Confirme que a reunião foi carregada e processada
-- Verifique se `LLM_PROVIDER` está configurado corretamente
-- Se for OpenAI, verifique `OPENAI_API_KEY`
-- Se for Ollama, confirme que `ollama serve` está rodando
+- Confirme que `ollama serve` está rodando
 - Verifique logs do terminal Streamlit
 
 ## Testes

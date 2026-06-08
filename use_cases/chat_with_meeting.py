@@ -42,14 +42,15 @@ class ChatWithMeetingUC:
 
         try:
             context = meeting.transcript_formatted or meeting.transcript_text
+            summary_context = meeting.summary.formatted if meeting.summary else ""
+            identified_user = meeting.identify_user(input_data.request_user_id)
             answer = self._llm.chat(
                 question=input_data.question,
                 context=context,
                 history=input_data.history,
+                summary_context=summary_context,
+                user_id=identified_user,
             )
-            identified_user = meeting.identify_user(input_data.request_user_id)
-            if identified_user:
-                answer = f"Identifiquei que você é {identified_user}. {answer}"
             return ChatWithMeetingOutput(answer=answer, success=True, identified_user=identified_user)
 
         except LLMServiceError as e:

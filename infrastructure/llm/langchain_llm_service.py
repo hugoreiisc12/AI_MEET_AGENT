@@ -1,5 +1,3 @@
-# Implementação de LLM service usando LangChain para processamento de reuniões
-# Suporta OpenAI, Ollama (local) e OpenRouter
 import json
 import re
 from langchain_openai import ChatOpenAI
@@ -17,16 +15,20 @@ CHAT_SYSTEM_PROMPT = """Você é um assistente de reuniões. Você participou da
 TRANSCRIÇÃO DA REUNIÃO:
 {transcript}
 
+SUMÁRIO DA REUNIÃO:
+{summary}
+
 Regras:
 - Responda sempre em português Brasil
-- Se a informação não estiver na transcrição, responda "Isso não foi mencionado na reunião"
+- Se a informação não estiver na transcrição ou sumário, responda "Isso não foi mencionado na reunião"
 - Não invente falas, participantes ou horários
 - Seja direto e objetivo
-- Cite a fonte quando possível (ex: "Conforme mencionado por Speaker 0...")"""
+- Use os identificadores reais dos participantes (e-mails ou nomes) ao se referir a quem disse algo
+- {user_context}"""
 
 
 class LangChainLLMService(ILLMService):
-    """Serviço de LLM com LangChain — suporta OpenAI, Ollama e OpenRouter."""
+    """Serviço de LLM local via Ollama (LangChain + OpenAI-compatible API)."""
 
     def __init__(self, llm: ChatOpenAI | None = None) -> None:
         settings = get_settings()
@@ -34,48 +36,20 @@ class LangChainLLMService(ILLMService):
         self._current_transcript: str = ""
 
         if llm:
-            # Injeção direta — usado em testes
             self._llm = llm
-
-        elif getattr(settings, "llm_provider", "openai") == "ollama":
-            # LLM local via Ollama — sem custo, sem internet
+        else:
             self._llm = ChatOpenAI(
                 model=getattr(settings, "ollama_model", "nemotron-mini"),
-                api_key=SecretStr("ollama"),  # Ollama não valida a key
+                api_key=SecretStr("ollama"),
                 base_url=getattr(settings, "ollama_base_url", "http://localhost:11434/v1"),
                 temperature=settings.llm_temperature,
                 top_p=settings.llm_top_p,
             )
 
-        elif getattr(settings, "llm_provider", "openai") == "openrouter":
-            # OpenRouter — acesso a múltiplos modelos com uma chave
-            self._llm = ChatOpenAI(
-                model=getattr(settings, "openrouter_model", "openai/gpt-4o"),
-                api_key=SecretStr(getattr(settings, "openrouter_api_key", "")),
-                base_url="https://openrouter.ai/api/v1",
-                temperature=settings.llm_temperature,
-                top_p=settings.llm_top_p,
-                default_headers={
-                    "HTTP-Referer": getattr(settings, "openrouter_site_url", ""),
-                    "X-Title": getattr(settings, "openrouter_site_name", "Meet Agent"),
-                },
-            )
-
-        else:
-            # OpenAI direto — padrão
-            self._llm = ChatOpenAI(
-                model=settings.openai_model,
-                api_key=SecretStr(settings.openai_api_key),
-                temperature=settings.llm_temperature,
-                top_p=settings.llm_top_p,
-            )
-
     def summarize(self, transcript: str, meeting_type: MeetingType = MeetingType.GENERAL) -> Summary:
-        """Analisa transcrição e retorna Summary com tópicos, tarefas, decisões."""
         try:
             system_prompt = self._prompt_builder.build_summarize_system(meeting_type)
             user_message  = self._prompt_builder.build_summarize_user(transcript)
-
             messages: list[BaseMessage] = [
                 SystemMessage(content=system_prompt),
                 HumanMessage(content=user_message),
@@ -83,17 +57,22 @@ class LangChainLLMService(ILLMService):
             response = self._llm.invoke(messages)
             content  = response.content if isinstance(response.content, str) else str(response.content)
             return self._parse_summary(content)
-
         except LLMServiceError:
             raise
         except Exception as e:
             raise LLMServiceError(f"Falha na sumarização: {str(e)}") from e
 
-    def chat(self, question: str, context: str, history: list[dict]) -> str:
-        """Responde pergunta sobre reunião mantendo contexto de conversa."""
+    def chat(self, question: str, context: str, history: list[dict], summary_context: str = "", user_id: str | None = None) -> str:
         try:
+            user_context = ""
+            if user_id:
+                user_context = f"O usuário que está perguntando é {user_id}."
             messages: list[BaseMessage] = [
-                SystemMessage(content=CHAT_SYSTEM_PROMPT.format(transcript=context))
+                SystemMessage(content=CHAT_SYSTEM_PROMPT.format(
+                    transcript=context,
+                    summary=summary_context or "Nenhum sumário disponível.",
+                    user_context=user_context,
+                ))
             ]
             for turn in history:
                 if turn["role"] == "user":
@@ -101,20 +80,16 @@ class LangChainLLMService(ILLMService):
                 else:
                     messages.append(AIMessage(content=turn["content"]))
             messages.append(HumanMessage(content=question))
-
             response = self._llm.invoke(messages)
             content  = response.content if isinstance(response.content, str) else str(response.content)
             return content
-
         except LLMServiceError:
             raise
         except Exception as e:
             raise LLMServiceError(f"Falha no chat: {str(e)}") from e
 
     def _parse_summary(self, raw: str) -> Summary:
-        """Parseia JSON da LLM removendo markdown fences se necessário."""
         cleaned = self._extract_json(raw)
-
         try:
             data: dict = json.loads(cleaned)
         except (json.JSONDecodeError, KeyError) as e:
@@ -134,7 +109,6 @@ class LangChainLLMService(ILLMService):
             )
             for t in data.get("tasks", [])
         ]
-
         decisions = [
             Decision(
                 description=d.get("description", ""),
@@ -142,7 +116,6 @@ class LangChainLLMService(ILLMService):
             )
             for d in data.get("decisions", [])
         ]
-
         return Summary(
             overview=data.get("overview", ""),
             topics=data.get("topics", []),
@@ -152,7 +125,6 @@ class LangChainLLMService(ILLMService):
 
     def _extract_json(self, raw: str) -> str:
         cleaned = raw.strip()
-
         if cleaned.startswith("```"):
             parts = cleaned.split("```")
             if len(parts) >= 3:
@@ -162,22 +134,17 @@ class LangChainLLMService(ILLMService):
                     cleaned = parts[1]
             else:
                 cleaned = cleaned.replace("```", "")
-
         if cleaned.lower().startswith("json"):
             cleaned = cleaned.split("\n", 1)[-1]
-
         cleaned = cleaned.strip()
-
         first_brace = cleaned.find("{")
         if first_brace != -1:
             cleaned = cleaned[first_brace:]
-
         return cleaned.strip()
 
     def _recover_invalid_json(self, raw: str) -> str:
         candidate = raw.strip()
         candidate = re.sub(r",\s*([}\]])", r"\1", candidate)
-
         brace_balance = 0
         bracket_balance = 0
         for ch in candidate:
@@ -189,10 +156,8 @@ class LangChainLLMService(ILLMService):
                 bracket_balance += 1
             elif ch == "]":
                 bracket_balance -= 1
-
         if brace_balance > 0:
             candidate += "}" * brace_balance
         if bracket_balance > 0:
             candidate += "]" * bracket_balance
-
         return candidate

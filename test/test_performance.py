@@ -37,7 +37,7 @@ class MockLLMServiceFast:
             decisions=[Decision(description="Decision 1")]
         )
 
-    def chat(self, question: str, context: str, history: list) -> str:
+    def chat(self, question: str, context: str, history: list, **kwargs) -> str:
         return "Resposta rápida"
 
 
@@ -141,9 +141,9 @@ class TestErrorHandling:
 
     def test_invalid_audio_path(self):
         """Testa erro com caminho de áudio inválido"""
-        from infrastructure.transcriber.whisper_transcriber import WhisperTranscriber
+        from infrastructure.transcriber.whisper_local_transcriber import WhisperLocalTranscriber
 
-        transcriber = WhisperTranscriber()
+        transcriber = WhisperLocalTranscriber()
         uc = TranscribeMeetingUC(transcriber)
 
         result = uc.execute(TranscribeMeetingInput(

@@ -26,7 +26,6 @@ Execute: pytest test_full.py -v
 
 Útil para:
   - Validar que todas as camadas estão conectadas corretamente
-  - Rodar em CI sem OPENAI_API_KEY
   - Desenvolver a UI sem depender de áudio real
 """
 
@@ -85,7 +84,7 @@ class MockLLMService(ILLMService):
 
 # Implementação de metodo de chat que retornam respostas pré-definidas para perguntas sobre a reunião, 
 # simulando o comportamento de um assistente de reuniões 
-    def chat(self, question: str, context: str, history: list[dict]) -> str:
+    def chat(self, question: str, context: str, history: list[dict], **kwargs) -> str:
         return (
             f"[Resposta mock para: '{question}']\n"
             "Ana ficou responsável por revisar o fluxo de onboarding até sexta-feira, "

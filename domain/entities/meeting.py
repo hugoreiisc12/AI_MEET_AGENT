@@ -3,6 +3,8 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Optional
 
+from domain.entities.speech_block import SpeechBlock
+
 
 # Representa uma tarefa identificada em reunião
 @dataclass
@@ -92,6 +94,8 @@ class Meeting:
     participants: list[str] = field(default_factory=list)  # Participantes
     participant_info: dict[str, str] = field(default_factory=dict)  # ID -> nome/email do participante
     duration_minutes: float = 0.0  # Duração em minutos
+    speech_blocks: list[SpeechBlock] = field(default_factory=list)  # Blocos de 10s com usuário real
+    speaker_observations: list[dict] = field(default_factory=list)  # Raw [{timestamp, participant_id}, ...] do bot
 
     # Verifica se foi transcrita
     @property

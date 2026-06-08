@@ -1,8 +1,8 @@
 {
   "venvPath": ".",
-  "venv": "venv",
+  "venv": ".venv",
   "pythonVersion": "3.14",
   "include": ["."],
-  "exclude": ["venv", ".git", ".pytest_cache"],
+  "exclude": [".venv", ".git", ".pytest_cache"],
   "extraPaths": ["."]
 }

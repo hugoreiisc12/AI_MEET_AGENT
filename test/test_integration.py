@@ -46,7 +46,7 @@ class MockLLMService:
             ]
         )
 
-    def chat(self, question: str, context: str, history: list) -> str:
+    def chat(self, question: str, context: str, history: list, **kwargs) -> str:
         question_lower = question.lower()
 
         if "quem" in question_lower or "responsável" in question_lower:
@@ -268,9 +268,9 @@ class TestErrorRecovery:
 
     def test_partial_processing_recovery(self):
         """Testa se continua mesmo se partes falharem"""
-        from infrastructure.transcriber.whisper_transcriber import WhisperTranscriber
+        from infrastructure.transcriber.whisper_local_transcriber import WhisperLocalTranscriber
 
-        transcriber = WhisperTranscriber()
+        transcriber = WhisperLocalTranscriber()
         uc = TranscribeMeetingUC(transcriber)
 
         result = uc.execute(TranscribeMeetingInput(

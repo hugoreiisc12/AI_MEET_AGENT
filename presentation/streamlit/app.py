@@ -26,6 +26,12 @@ try:
 except ImportError:
     HAS_REQUESTS = False
 
+try:
+    from streamlit_autorefresh import st_autorefresh
+    HAS_AUTOREFRESH = True
+except ImportError:
+    HAS_AUTOREFRESH = False
+
 settings = get_settings()
 
 @st.cache_resource
@@ -42,6 +48,7 @@ def _init():
     defaults = {
         "meeting": None,
         "chat_history": [],
+        "chat_mode": False,
         "mode_selected": False,
     }
     for k, v in defaults.items():
@@ -58,6 +65,11 @@ def _render_sidebar():
         st.divider()
 
         st.subheader("Reuniões salvas")
+        col_refresh, _ = st.columns([1, 3])
+        with col_refresh:
+            if st.button("🔄 Atualizar", use_container_width=True):
+                st.rerun()
+
         try:
             meetings = container.repository.list_all()
         except Exception as e:
@@ -65,12 +77,19 @@ def _render_sidebar():
             meetings = []
 
         for m in meetings:
-            label = m.title[:30] + ("..." if len(m.title) > 30 else "")
-            button_label = f"📋 {label} — {m.id[:8]}"
-            if st.button(button_label, key=f"load_{m.id}", use_container_width=True):
+            label = m.title[:35] + ("..." if len(m.title) > 35 else "")
+            if st.button(f"📋 {label}", key=f"load_{m.id}", use_container_width=True):
                 st.session_state.meeting = m
                 st.session_state.chat_history = []
+                st.session_state.chat_mode = False
                 st.rerun()
+
+        # Auto-refresh enquanto houver bot ativo
+        if HAS_AUTOREFRESH and hasattr(container, "record_meeting") and container.record_meeting:
+            active = container.record_meeting.list_active_sessions()
+            if active:
+                st_autorefresh(interval=10_000, key="bot_autorefresh")
+                st.caption(f"🤖 {len(active)} bot(s) ativo(s) — atualizando a cada 10s")
 
         if st.session_state.meeting:
             st.divider()
@@ -185,42 +204,42 @@ if st.session_state.meeting is None:
                     with st.spinner("Enviando bot para a reunião..."):
                         from use_cases.record_meeting import SendBotInput
 
-                        # FIX: callback agora aponta para /meetings/bot/done (endpoint existente)
-                        # e é efetivamente passado para SendBotInput via on_finished=
+                        import uuid as _uuid_lib
+
+                        safe_meet_url = meet_url or ""
+                        meeting_id = str(_uuid_lib.uuid4())
+
                         def on_done(
                             audio_path: str,
                             title: str,
                             participant_info: dict[str, str],
                             speaker_observations: list[dict[str, float | str]],
+                            mid: str,
                         ) -> None:
-                            try:
-                                import requests as req
-                                req.post(
-                                    f"http://{settings.api_host}:{settings.api_port}/meetings/bot/done",
-                                    json={
-                                        "audio_path": audio_path,
-                                        "title": title,
-                                        "participant_info": participant_info,
-                                        "speaker_observations": speaker_observations,
-                                    },
-                                    timeout=10,
-                                )
-                            except Exception:
-                                pass  # falha silenciosa — bot já terminou, UI não pode ser notificada
+                            """Dispara o pipeline completo (transcrever → sumarizar → salvar)."""
+                            c = get_container()
+                            c.pipeline_orchestrator.run_pipeline(
+                                meeting_id=mid,
+                                audio_path=audio_path,
+                                title=title,
+                                participant_info=participant_info or {},
+                                speaker_observations=speaker_observations or [],
+                            )
+                            print(f"[Bot] ✅ Pipeline disparado: {title} ({mid})")
 
-                        safe_meet_url = meet_url or ""
                         result = container.record_meeting.send_bot(
                             SendBotInput(
                                 meeting_url=safe_meet_url,
                                 title=meeting_title,
-                                on_finished=on_done,  # FIX: era omitido, callback nunca disparava
+                                meeting_id=meeting_id,
+                                on_finished=on_done,
                             )
                         )
 
                     if result.success:
                         st.success("✅ Bot enviado! Ele está entrando na reunião agora.")
                         st.info(
-                            f"**Session ID:** `{result.session_id}`\n\n"
+                            f"**Meeting ID:** `{meeting_id}`\n\n"
                             "Quando a reunião terminar, o resumo aparecerá automaticamente "
                             "no histórico de reuniões."
                         )
@@ -257,6 +276,54 @@ if st.session_state.meeting is None:
 
 if st.session_state.meeting is None:
     st.info("Selecione ou carregue uma reunião para ver o dashboard.")
+elif st.session_state.get("chat_mode"):
+    meeting: Meeting = st.session_state.meeting
+    if meeting is None:
+        st.warning("Reunião não selecionada.")
+        st.stop()
+
+    st.subheader(f"💬 Consulta sobre: {meeting.title}")
+    st.markdown(f"**Meeting ID:** `{meeting.id}`")
+    st.divider()
+
+    chat_box = st.container(height=500)
+    with chat_box:
+        if not st.session_state.chat_history:
+            st.caption("Faça uma pergunta sobre a reunião.")
+        for msg in st.session_state.chat_history:
+            with st.chat_message(msg["role"]):
+                st.write(msg["content"])
+
+    if question := st.chat_input("Ex: Quem ficou com a tarefa X?"):
+        if len(st.session_state.chat_history) >= MAX_CHAT_HISTORY:
+            st.session_state.chat_history = st.session_state.chat_history[-MAX_CHAT_HISTORY:]
+
+        st.session_state.chat_history.append({"role": "user", "content": question})
+
+        with st.spinner("Pensando..."):
+            try:
+                result = container.chat_with_meeting.execute(
+                    ChatWithMeetingInput(
+                        meeting=meeting,
+                        question=question,
+                        history=st.session_state.chat_history[:-1],
+                    )
+                )
+                answer = result.answer if result.success else f"⚠️ {result.error_message}"
+            except Exception as e:
+                st.error(f"Erro no chat: {str(e)}")
+                st.session_state.chat_history.pop()
+                st.stop()
+
+        st.session_state.chat_history.append({"role": "assistant", "content": answer})
+        st.rerun()
+
+    col_back, _ = st.columns([1, 5])
+    with col_back:
+        if st.button("← Voltar aos detalhes"):
+            st.session_state.chat_mode = False
+            st.rerun()
+
 else:
     meeting: Meeting = st.session_state.meeting
     if meeting is None:
@@ -276,67 +343,51 @@ else:
     c4.metric("🔑 Decisões", len(summary.decisions) if summary else 0)
 
     st.divider()
-    col_left, col_right = st.columns([1, 1], gap="large")
 
-    with col_left:
-        if summary:
-            st.markdown("### Visão Geral")
-            st.write(summary.overview)
+    if summary:
+        st.markdown("### Visão Geral")
+        st.write(summary.overview)
 
-            if summary.topics:
+        if summary.topics:
+            col_top, col_chat = st.columns([1, 1], gap="large")
+            with col_top:
                 st.markdown("### Tópicos")
                 for t in summary.topics:
                     st.markdown(f"- {t}")
 
-            if summary.tasks:
-                st.markdown("### Tarefas")
-                st.info("📝 Nota: Mudanças em tarefas não são persistidas nesta versão.")
-                for idx, task in enumerate(summary.tasks):
-                    st.checkbox(
-                        f"**{task.description}**  \n*{task.responsible}* · {task.deadline}",
-                        value=getattr(task, "done", False),
-                        key=f"task_{idx}_{task.description[:10]}",
-                        disabled=True,
-                    )
+            with col_chat:
+                st.markdown("### 💬 Agent")
+                st.write("Faça perguntas sobre a reunião com o agente de IA.")
+                if st.button("🚀 Iniciar consulta com Agent", type="primary", use_container_width=True):
+                    st.session_state.chat_history = []
+                    st.session_state.chat_mode = True
+                    st.rerun()
+        else:
+            st.markdown("### Tópicos")
+            for t in summary.topics:
+                st.markdown(f"- {t}")
 
-            if summary.decisions:
-                st.markdown("### Decisões")
-                for dec in summary.decisions:
-                    with st.expander(dec.description):
-                        st.write(dec.context or "Sem contexto adicional.")
+        if summary.tasks:
+            st.markdown("### Tarefas")
+            st.info("📝 Nota: Mudanças em tarefas não são persistidas nesta versão.")
+            for idx, task in enumerate(summary.tasks):
+                st.checkbox(
+                    f"**{task.description}**  \n*{task.responsible}* · {task.deadline}",
+                    value=getattr(task, "done", False),
+                    key=f"task_{idx}_{task.description[:10]}",
+                    disabled=True,
+                )
 
-    with col_right:
-        st.markdown("### 💬 Chat")
-        chat_box = st.container(height=400)
-        with chat_box:
-            if not st.session_state.chat_history:
-                st.caption("Faça uma pergunta sobre a reunião.")
-            for msg in st.session_state.chat_history:
-                with st.chat_message(msg["role"]):
-                    st.write(msg["content"])
+        if summary.decisions:
+            st.markdown("### Decisões")
+            for dec in summary.decisions:
+                with st.expander(dec.description):
+                    st.write(dec.context or "Sem contexto adicional.")
 
-        if question := st.chat_input("Ex: Quem ficou com a tarefa X?"):
-            if len(st.session_state.chat_history) >= MAX_CHAT_HISTORY:
-                st.session_state.chat_history = st.session_state.chat_history[-MAX_CHAT_HISTORY:]
-
-            st.session_state.chat_history.append({"role": "user", "content": question})
-
-            with st.spinner("Pensando..."):
-                try:
-                    result = container.chat_with_meeting.execute(
-                        ChatWithMeetingInput(
-                            meeting=meeting,
-                            question=question,
-                            history=st.session_state.chat_history[:-1],
-                        )
-                    )
-                    answer = result.answer if result.success else f"⚠️ {result.error_message}"
-                except Exception as e:
-                    st.error(f"Erro no chat: {str(e)}")
-                    st.session_state.chat_history.pop()
-                    st.stop()
-
-            st.session_state.chat_history.append({"role": "assistant", "content": answer})
+        st.divider()
+        if st.button("💬 Iniciar consulta com Agent", type="primary", use_container_width=True):
+            st.session_state.chat_history = []
+            st.session_state.chat_mode = True
             st.rerun()
 
     st.divider()

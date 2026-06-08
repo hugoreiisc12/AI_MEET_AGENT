@@ -42,5 +42,8 @@ data/test_audio/
 *.log
 celery*.log
 
+# ── Bot Chrome Profile ────────────────────────────────────────────────────
+bot_chrome_profile/
+
 # ── Distribuição ──────────────────────────────────────────────────────────
 *.zip.env

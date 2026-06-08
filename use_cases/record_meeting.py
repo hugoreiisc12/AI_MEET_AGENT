@@ -15,7 +15,8 @@ from typing import Optional, Callable
 class SendBotInput:
     meeting_url: str
     title: str = "Reunião"
-    on_finished: Optional[Callable[[str, str, dict[str, str], list[dict[str, float | str]]], None]] = None
+    meeting_id: Optional[str] = None
+    on_finished: Optional[Callable[[str, str, dict[str, str], list[dict[str, float | str]], str], None]] = None
 
 
 @dataclass
@@ -46,7 +47,8 @@ class RecordMeetingUC:
 
     def send_bot(self, input_data: SendBotInput) -> SendBotOutput:
         import uuid
-        session_id = str(uuid.uuid4())[:8]
+        meeting_id = input_data.meeting_id or str(uuid.uuid4())
+        session_id = meeting_id[:8]
 
         try:
             session, thread = self._recorder.join_async(input_data.meeting_url)
@@ -62,6 +64,7 @@ class RecordMeetingUC:
                             input_data.title,
                             session.participant_info,
                             session.speaker_observations,
+                            meeting_id,
                         )
                 threading.Thread(target=_watch, daemon=True).start()
 

@@ -1,8 +1,8 @@
-"""Compatibility shim for the openai-whisper package.
+"""Compatibility shim for the local Whisper model package.
 
 Project code imports `whisper_local_transcriber as whisper`; this module
 provides a `load_model(name, device=...)` wrapper delegating to
-`whisper.load_model(...)` from the `openai-whisper` package.
+`whisper.load_model(...)` from the `openai-whisper` package (local model).
 
 This file lets the existing code use the standard `whisper` distribution
 without changing many import sites.

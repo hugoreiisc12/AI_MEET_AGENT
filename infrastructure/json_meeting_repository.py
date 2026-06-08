@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Optional
 
 from domain.entities.meeting import Meeting, Summary, Task, Decision
+from domain.entities.speech_block import SpeechBlock
 from repositories.meeting_repository import IMeetingRepository
 from config.settings import get_settings
 
@@ -61,6 +62,11 @@ class JsonMeetingRepository(IMeetingRepository):
             "participants": m.participants,
             "participant_info": m.participant_info,
             "duration_minutes": m.duration_minutes,
+            "speech_blocks": [
+                {"user_id": b.user_id, "text": b.text, "start": b.start, "end": b.end, "sentiment": b.sentiment, "energy": b.energy}
+                for b in m.speech_blocks
+            ],
+            "speaker_observations": m.speaker_observations,
             "summary": None,
         }
         if m.summary:
@@ -102,4 +108,9 @@ class JsonMeetingRepository(IMeetingRepository):
             participant_info=data.get("participant_info", {}),
             duration_minutes=data.get("duration_minutes", 0.0),
             summary=summary,
+            speech_blocks=[
+                SpeechBlock(b["user_id"], b["text"], b["start"], b["end"], b.get("sentiment", "neutro"), b.get("energy", "médio"))
+                for b in data.get("speech_blocks", [])
+            ],
+            speaker_observations=data.get("speaker_observations", []),
         )

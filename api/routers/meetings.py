@@ -128,24 +128,29 @@ async def send_bot_to_meeting(body: SendBotRequest):
             "E execute: python bot_setup.py",
         )
 
+    from use_cases.record_meeting import SendBotInput
+    meeting_id = str(uuid.uuid4())
+
     def on_meeting_finished(
         audio_path: str,
         meeting_title: str,
         participant_info: dict[str, str],
         speaker_observations: list[dict[str, float | str]],
+        mid: str,
     ) -> None:
         _process_bot_audio(
+            mid,
             audio_path,
             meeting_title,
             participant_info,
             speaker_observations,
         )
 
-    from use_cases.record_meeting import SendBotInput
     result = container.record_meeting.send_bot(
         SendBotInput(
             meeting_url=body.meeting_url,
             title=body.title,
+            meeting_id=meeting_id,
             on_finished=on_meeting_finished,
         )
     )
@@ -163,6 +168,7 @@ async def send_bot_to_meeting(body: SendBotRequest):
 # FIX: endpoint que o app.py chama via on_done (antes apontava para /bot-done
 # que não existia em nenhum router)
 class BotDoneRequest(BaseModel):
+    meeting_id: str = ""
     audio_path: str
     title: str = "Reunião"
     participant_info: dict[str, str] = Field(default_factory=dict)
@@ -175,14 +181,16 @@ async def bot_done(body: BotDoneRequest, background_tasks: BackgroundTasks):
     Chamado pelo callback on_done do Streamlit quando o bot termina a reunião.
     Dispara o processamento (transcrição + resumo) do áudio gravado em background.
     """
+    meeting_id = body.meeting_id or str(uuid.uuid4())
     background_tasks.add_task(
         _process_bot_audio,
+        meeting_id,
         body.audio_path,
         body.title,
         body.participant_info,
         body.speaker_observations,
     )
-    return {"status": "processing", "message": "Processamento iniciado."}
+    return {"status": "processing", "message": f"Processamento iniciado. ID: {meeting_id}"}
 
 
 @router.get("/bot/{session_id}/status")
@@ -276,70 +284,25 @@ def _process_sync(meeting_id: str, audio_path: str, title: str) -> None:
 
 
 def _process_bot_audio(
+    meeting_id: str,
     audio_path: str,
     title: str,
     participant_info: dict[str, str] | None = None,
     speaker_observations: list[dict[str, float | str]] | None = None,
 ) -> None:
-    """Processa o áudio do bot: transcreve, resume e persiste."""
-    from domain.entities.meeting import Meeting
-    from use_cases.transcribe_meeting import TranscribeMeetingInput
-    from use_cases.summarize_meeting import SummarizeMeetingInput
-
+    """Dispara o pipeline completo (transcrever → sumarizar → salvar)."""
     container = get_container()
-    meeting_id = str(uuid.uuid4())
 
-    _set_status(meeting_id, ProcessingStatus.TRANSCRIBING)
-
-    t = container.transcribe_meeting.execute(
-        TranscribeMeetingInput(audio_path=audio_path, with_diarization=True)
-    )
-    if not t.success:
-        _set_status(meeting_id, ProcessingStatus.ERROR)
-        return
-
-    speaker_mapping = _infer_speaker_aliases(
-        t.transcript,
-        participant_info or {},
-        speaker_observations or [],
-    )
-    if speaker_mapping:
-        t.transcript.apply_speaker_mapping(speaker_mapping)
-
-    participants = (
-        list(dict.fromkeys(participant_info.values()))
-        if participant_info
-        else t.transcript.speakers
-    )
-
-    meeting = Meeting(
-        id=meeting_id,
-        title=title,
-        started_at=datetime.now(),
+    container.pipeline_orchestrator.run_pipeline(
+        meeting_id=meeting_id,
         audio_path=audio_path,
-        transcript_text=t.transcript.full_text,
-        transcript_formatted=t.transcript.formatted,
-        participants=participants,
+        title=title,
         participant_info=participant_info or {},
-        duration_minutes=t.transcript.duration_minutes,
+        speaker_observations=speaker_observations or [],
     )
 
-    # Persistir reunião transcrita imediatamente para que ela apareça na lista mesmo
-    # se a sumarização falhar.
-    container.repository.save(meeting)
-
-    _set_status(meeting_id, ProcessingStatus.SUMMARIZING)
-    s = container.summarize_meeting.execute(SummarizeMeetingInput(meeting=meeting))
-
-    if s.success:
-        meeting.summary = s.summary
-        container.repository.save(meeting)
-
-    _set_status(
-        meeting_id,
-        ProcessingStatus.DONE if s.success else ProcessingStatus.ERROR,
-    )
-    print(f"[Bot] ✅ Reunião processada: {title} ({meeting_id})")
+    _set_status(meeting_id, ProcessingStatus.PENDING)
+    print(f"[Bot] ✅ Pipeline disparado: {title} ({meeting_id})")
 
 
 def _infer_speaker_aliases(

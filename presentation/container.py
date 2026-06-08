@@ -15,6 +15,7 @@ from domain.entities.calendar_event import CalendarEvent
 from infrastructure.llm.langchain_llm_service import LangChainLLMService
 from infrastructure.json_meeting_repository import JsonMeetingRepository
 from infrastructure.sqlite_meeting_repository import SqliteMeetingRepository
+from infrastructure.mongo_setup import init_mongo
 
 from use_cases.record_meeting import RecordMeetingUC
 from use_cases.transcribe_meeting import TranscribeMeetingUC
@@ -25,32 +26,22 @@ from use_cases.fetch_meeting_context import FetchMeetingContextUC
 
 
 def _build_transcriber(settings):
-    """
-    Instancia o transcriber correto baseado nas settings.
-
-    Decisão em duas etapas:
-      1. API ou local? → WHISPER_TRANSCRIBER=api|local
-      2. Se local, com diarização real? → USE_REAL_DIARIZATION=true|false
-
-    Combinações:
-      WHISPER_TRANSCRIBER=api  + USE_REAL_DIARIZATION=false → WhisperTranscriber (API OpenAI)
-      WHISPER_TRANSCRIBER=api  + USE_REAL_DIARIZATION=true  → WhisperWithDiarization (API + pyannote)
-      WHISPER_TRANSCRIBER=local + USE_REAL_DIARIZATION=false → WhisperLocalTranscriber
-      WHISPER_TRANSCRIBER=local + USE_REAL_DIARIZATION=true  → WhisperLocalTranscriber + pyannote (futuro)
-    """
-    use_local = settings.use_local_whisper
-
-    if use_local:
-        from infrastructure.transcriber.whisper_local_transcriber import WhisperLocalTranscriber
-        return WhisperLocalTranscriber()
-
-    # API OpenAI
-    if settings.use_real_diarization:
-        from infrastructure.transcriber.whisper_with_diarization import WhisperWithDiarization
-        return WhisperWithDiarization()
-
-    from infrastructure.transcriber.whisper_transcriber import WhisperLocalTranscriber
+    """Instancia o transcriber local (WhisperLocalTranscriber)."""
+    from infrastructure.transcriber.whisper_local_transcriber import WhisperLocalTranscriber
     return WhisperLocalTranscriber()
+
+
+def _build_pipeline_orchestrator(repository, transcribe_uc, summarize_uc, chat_uc=None):
+    from infrastructure.transcriber.block_based_transcriber import BlockBasedTranscriber
+    from infrastructure.pipeline.meeting_pipeline_orchestrator import MeetingPipelineOrchestrator
+
+    return MeetingPipelineOrchestrator(
+        repository=repository,
+        transcribe_uc=transcribe_uc,
+        summarize_uc=summarize_uc,
+        block_transcriber=BlockBasedTranscriber(),
+        chat_uc=chat_uc,
+    )
 
 
 def _build_common(settings, repository) -> dict:
@@ -64,6 +55,11 @@ def _build_common(settings, repository) -> dict:
     transcribe_meeting = TranscribeMeetingUC(transcriber)
     summarize_meeting  = SummarizeMeetingUC(llm, repository)
     chat_with_meeting  = ChatWithMeetingUC(llm)
+
+    # Orquestrador do pipeline: transcreve → sumariza em cadeia
+    pipeline_orchestrator = _build_pipeline_orchestrator(
+        repository, transcribe_meeting, summarize_meeting, chat_with_meeting,
+    )
 
     from infrastructure.llm.sentiment_analyzer import SentimentAnalyzer
     sentiment_analyzer = SentimentAnalyzer(llm_client=llm._llm)
@@ -118,17 +114,18 @@ def _build_common(settings, repository) -> dict:
             record_meeting = RecordMeetingUC(recorder=recorder)
 
     return {
-        "_transcriber":          transcriber,
-        "_llm":                  llm,
-        "_repository":           repository,
-        "transcribe_meeting":    transcribe_meeting,
-        "summarize_meeting":     summarize_meeting,
-        "chat_with_meeting":     chat_with_meeting,
-        "analyze_sentiment":     analyze_sentiment,
-        "fetch_meeting_context": fetch_meeting_context,
-        "calendar_event":        calendar_event,
-        "record_meeting":        record_meeting,
-        "repository":            repository,
+        "_transcriber":           transcriber,
+        "_llm":                   llm,
+        "_repository":            repository,
+        "transcribe_meeting":     transcribe_meeting,
+        "summarize_meeting":      summarize_meeting,
+        "chat_with_meeting":      chat_with_meeting,
+        "analyze_sentiment":      analyze_sentiment,
+        "fetch_meeting_context":  fetch_meeting_context,
+        "calendar_event":         calendar_event,
+        "record_meeting":         record_meeting,
+        "repository":             repository,
+        "pipeline_orchestrator":  pipeline_orchestrator,
     }
 
 
@@ -175,16 +172,37 @@ class CollabContainer:
         self.__dict__.update(_build_common(settings, repository))
 
 
-def build_container() -> SoloContainer | CollabContainer:
+class MongoContainer:
+    repository: "MongoMeetingRepository"  # noqa: F821
+    record_meeting: Any | None
+    transcribe_meeting: TranscribeMeetingUC
+    summarize_meeting: SummarizeMeetingUC
+    chat_with_meeting: ChatWithMeetingUC
+    analyze_sentiment: AnalyzeSentimentUC
+    fetch_meeting_context: FetchMeetingContextUC | None
+    calendar_event: CalendarEvent | None
+
+    def __init__(self) -> None:
+        from infrastructure.mongo_meeting_repository import MongoMeetingRepository
+
+        settings = get_settings()
+        init_mongo(settings.mongo_uri, settings.mongo_db_name)
+        repository = MongoMeetingRepository()
+        self.__dict__.update(_build_common(settings, repository))
+
+
+def build_container() -> SoloContainer | CollabContainer | MongoContainer:
     """Factory sem cache — use em testes para obter container sempre fresco."""
     settings = get_settings()
+    if settings.use_mongo:
+        return MongoContainer()
     if settings.app_mode == AppMode.COLLAB:
         return CollabContainer()
     return SoloContainer()
 
 
 @lru_cache(maxsize=1)
-def get_container() -> SoloContainer | CollabContainer:
+def get_container() -> SoloContainer | CollabContainer | MongoContainer:
     """Singleton por processo.
 
     ATENÇÃO: se fizer get_settings.cache_clear() em testes,

@@ -1,12 +1,11 @@
 # Camada de testes paea validação do WhisperTranscriber.
 
 """
-Script de validação do WhisperTranscriber.
+Script de validação do WhisperLocalTranscriber.
 
 Antes de rodar o script, verificar:
-  1. cp .env.example .env
-  2. Edite .env com sua OPENAI_API_KEY
-  3. pip install -r requirements.txt
+  1. pip install -r requirements.txt
+  2. pip install openai-whisper torch
 """
 # Adciona o diretorio atual ao sys.path oara mentir a compatibilidade de imports 
 import sys
@@ -14,13 +13,30 @@ import os
 
 sys.path.insert(0, os.path.dirname(__file__))
 
-from infrastructure.transcriber.whisper_transcriber import WhisperTranscriber
+from infrastructure.transcriber.whisper_local_transcriber import WhisperLocalTranscriber
 from use_cases.transcribe_meeting import TranscribeMeetingUC, TranscribeMeetingInput
 
-# Realiza um teste de basico de um arquivo de auddio sem diarização
-def test_transcricao_simples(audio_path: str) -> None:
+import pytest
+
+
+# ── Testes de integração (requerem áudio real + OPENAI_API_KEY) ───────────
+# Executar manualmente: python test/test_transcriber.py <audio.wav>
+
+@pytest.mark.skip(reason="Requer arquivo de áudio real e openai-whisper instalado")
+def test_transcricao_simples() -> None:
+    _run_simple_transcription()
+
+
+@pytest.mark.skip(reason="Requer arquivo de áudio real e openai-whisper instalado")
+def test_transcricao_com_diarizacao() -> None:
+    _run_diarized_transcription()
+
+
+def _run_simple_transcription(audio_path: str | None = None) -> None:
+    if not audio_path:
+        return
     print("\n--- Teste 1: Transcrição simples ---")
-    transcriber = WhisperTranscriber() # Criaçao de instanciamento do WhisperTranscriber
+    transcriber = WhisperLocalTranscriber()
     uc = TranscribeMeetingUC(transcriber=transcriber)
 
     result = uc.execute(
@@ -35,10 +51,12 @@ def test_transcricao_simples(audio_path: str) -> None:
     else:
         print(f"ERRO: {result.error_message}")
 
-# Teste de transcriação com diarização, verificando (identifica quem fala em cada momento)
-def test_transcricao_com_diarizacao(audio_path: str) -> None:
+
+def _run_diarized_transcription(audio_path: str | None = None) -> None:
+    if not audio_path:
+        return
     print("\n--- Teste 2: Transcrição com diarização ---")
-    transcriber = WhisperTranscriber() # Criação de instanciamento do WhisperTranscriber 
+    transcriber = WhisperLocalTranscriber()
     uc = TranscribeMeetingUC(transcriber=transcriber)
 
     result = uc.execute(
@@ -63,5 +81,5 @@ if __name__ == "__main__":
         sys.exit(1)
 
     audio = sys.argv[1]
-    test_transcricao_simples(audio)
-    test_transcricao_com_diarizacao(audio)
+    _run_simple_transcription(audio)
+    _run_diarized_transcription(audio)

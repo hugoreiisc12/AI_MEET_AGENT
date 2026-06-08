@@ -79,6 +79,12 @@ class PlaywrightBotRecorder:
     # Intervalo de polling para detectar fim da reunião
     _POLL_INTERVAL_SECONDS = 10
 
+    # Se ninguém falar por esse período (em segundos), considera reunião encerrada
+    _SILENCE_TIMEOUT = 300  # 5 minutos — evita sair prematuramente em pausas normais
+
+    # Tempo mínimo de gravação antes de considerar detecção por silêncio
+    _MIN_RECORDING_BEFORE_SILENCE = 120  # 2 minutos
+
     def __init__(
         self,
         google_email: str,
@@ -166,8 +172,8 @@ class PlaywrightBotRecorder:
                     self._sample_active_speaker(page, session)
                 )
 
-                # 7. Aguarda a reunião terminar (ou timeout)
-                await self._wait_until_meeting_ends(page, current_count)
+                # 7. Aguarda a reunião terminar (ou timeout) com detecção de silêncio
+                await self._wait_until_meeting_ends(page, current_count, session)
 
                 # 8. Garante parada da amostragem antes de salvar o áudio
                 active_speaker_task.cancel()
@@ -438,31 +444,75 @@ class PlaywrightBotRecorder:
             await asyncio.sleep(2)
 
     #  Detectar fim da reunião
-    async def _wait_until_meeting_ends(self, page, initial_count: int) -> None:
+    async def _wait_until_meeting_ends(self, page, initial_count: int, session: BotSession) -> None:
         elapsed = 0
         solo_counter = 0
+        zero_counter = 0
+        silence_counter = 0
 
         while elapsed < self._MAX_RECORDING_SECONDS:
             await asyncio.sleep(self._POLL_INTERVAL_SECONDS)
             elapsed += self._POLL_INTERVAL_SECONDS
 
+            # 1. Tela de reunião encerrada (mais confiável)
             if await self._is_meeting_ended_screen(page):
                 return
 
             current_count = await self._get_participant_count(page)
-            if initial_count > 0 and current_count == 0:
-                return
 
-            # Se só restar o bot sozinho na chamada por alguns ciclos, considera fim.
-            if initial_count > 1 and current_count <= 1:
+            # 2. Ninguém detectado por várias polls seguidas (DOM pode piscar)
+            if initial_count > 0 and current_count == 0:
+                zero_counter += 1
+                if zero_counter >= 3:  # 30s sem ninguém
+                    return
+            else:
+                zero_counter = 0
+
+            # 3. Só o bot na chamada por tempo sustentado
+            if current_count <= 1:
                 solo_counter += 1
             else:
                 solo_counter = 0
 
-            if solo_counter >= 2:
+            # 4. Silêncio prolongado (apenas após tempo mínimo de gravação)
+            has_recorded_enough = (
+                session.recording_started_at
+                and (datetime.now() - session.recording_started_at).total_seconds() >= self._MIN_RECORDING_BEFORE_SILENCE
+            )
+            if has_recorded_enough and not self._has_recent_speech(session):
+                silence_counter += 1
+            else:
+                silence_counter = 0
+
+            # Saída por participação: só o bot sozinho por 60s
+            if solo_counter >= 6:  # 6 * 10s = 60s
+                return
+
+            # Saída por silêncio: ninguém falou por 5min (apenas após 2min de gravação)
+            if silence_counter >= self._SILENCE_TIMEOUT // self._POLL_INTERVAL_SECONDS:
                 return
 
         # Timeout máximo atingido, finaliza com o áudio salvo até aqui.
+
+    def _has_recent_speech(self, session: BotSession) -> bool:
+        """Verifica se houve fala detectada nos últimos _SILENCE_TIMEOUT segundos."""
+        if not session.recording_started_at or not session.speaker_observations:
+            return False
+        now_offset = (datetime.now() - session.recording_started_at).total_seconds()
+        cutoff = now_offset - self._SILENCE_TIMEOUT
+        for obs in reversed(session.speaker_observations):
+            ts = obs.get("timestamp")
+            if ts is None:
+                continue
+            try:
+                ts = float(ts)
+            except (TypeError, ValueError):
+                continue
+            if ts >= cutoff:
+                return True
+            # Observações são ordenadas por timestamp; se passou do cutoff, para
+            break
+        return False
 
     async def _get_participant_count(self, page) -> int:
         """Conta participantes ativos na reunião com seletor mais específico."""
@@ -495,8 +545,7 @@ class PlaywrightBotRecorder:
                         || text.includes('você saiu da videochamada')
                         || text.includes('return to home screen')
                         || text.includes('back to home screen')
-                        || text.includes('call ended')
-                        || text.includes('you are the only participant');
+                        || text.includes('call ended');
                 })()
             """)
         except Exception:
