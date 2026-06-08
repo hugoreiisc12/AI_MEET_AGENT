@@ -42,15 +42,16 @@ def run_api() -> None:
 
 def run_worker() -> None:
     """Sobe o Celery worker."""
-    subprocess.run(
-        [
-            sys.executable, "-m", "celery",
-            "-A", "worker.tasks.celery_app",
-            "worker",
-            "--loglevel=info",
-        ],
-        check=True,
-    )
+    cmd = [
+        sys.executable, "-m", "celery",
+        "-A", "worker.tasks.celery_app",
+        "worker",
+        "--loglevel=info",
+    ]
+    # Windows não suporta o pool padrão (prefork); solo roda tudo na thread principal
+    if sys.platform == "win32":
+        cmd += ["--pool=solo"]
+    subprocess.run(cmd, check=True)
 
 
 def run_terminal_test(audio_path: str) -> None:

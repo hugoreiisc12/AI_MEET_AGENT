@@ -191,11 +191,31 @@ class MongoContainer:
         self.__dict__.update(_build_common(settings, repository))
 
 
+import logging as _logging
+
+_container_logger = _logging.getLogger(__name__)
+
+_mongo_fallback_warning: str | None = None
+
+
+def get_mongo_fallback_warning() -> str | None:
+    """Retorna aviso de fallback do MongoDB, se houver."""
+    return _mongo_fallback_warning
+
+
 def build_container() -> SoloContainer | CollabContainer | MongoContainer:
     """Factory sem cache — use em testes para obter container sempre fresco."""
+    global _mongo_fallback_warning
     settings = get_settings()
     if settings.use_mongo:
-        return MongoContainer()
+        try:
+            return MongoContainer()
+        except Exception as e:
+            _mongo_fallback_warning = (
+                f"MongoDB indisponível ({e}). "
+                "Usando repositório local. Verifique se o serviço está ativo."
+            )
+            _container_logger.warning(_mongo_fallback_warning)
     if settings.app_mode == AppMode.COLLAB:
         return CollabContainer()
     return SoloContainer()

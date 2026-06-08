@@ -29,6 +29,9 @@ try:
         timezone="America/Sao_Paulo",
         task_track_started=True,
     )
+    # Windows não suporta prefork; solo executa as tasks na thread principal
+    if sys.platform == "win32":
+        celery_app.conf.update(worker_pool="solo")
 except ImportError:
     celery_app = None  # modo solo — Celery não instalado
 

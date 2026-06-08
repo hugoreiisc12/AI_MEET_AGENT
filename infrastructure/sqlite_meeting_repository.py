@@ -1,5 +1,7 @@
 import json
+import re
 import sqlite3
+import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -19,11 +21,16 @@ def _resolve_path(path: str) -> Path:
 def _resolve_sqlite_path(database_path: str | Path) -> Path:
     path = str(database_path)
     if path.startswith("sqlite://"):
-        if path.startswith("sqlite:////"):
-            return Path(urlparse(path).path).resolve()
-        parsed = urlparse(path)
-        relative_path = parsed.path.lstrip("/")
-        return _resolve_path(relative_path)
+        raw = urlparse(path).path  # ex: "/./data/collab.db" ou "/C:/Users/..."
+        # Windows: path como /C:/Users/... → remover a barra inicial antes do drive
+        if sys.platform == "win32" and re.match(r"^/+[A-Za-z]:/", raw):
+            raw = re.sub(r"^/+", "", raw)
+        # Unix absoluto (sqlite:////path): //path → /path
+        elif raw.startswith("//"):
+            raw = "/" + raw.lstrip("/")
+        else:
+            raw = raw.lstrip("/")
+        return _resolve_path(raw)
     return _resolve_path(path)
 
 
@@ -55,6 +62,22 @@ class SqliteMeetingRepository(IMeetingRepository):
             """
         )
         self._conn.commit()
+
+        # Migração: adiciona colunas faltantes em bancos criados por versões antigas
+        _all_columns = {
+            "participants_json": "TEXT DEFAULT '[]'",
+            "participant_info_json": "TEXT DEFAULT '{}'",
+            "duration_minutes": "REAL DEFAULT 0.0",
+            "summary_json": "TEXT",
+        }
+        existing = {row[1] for row in self._conn.execute("PRAGMA table_info(meetings)")}
+        for col, col_type in _all_columns.items():
+            if col not in existing:
+                try:
+                    self._conn.execute(f"ALTER TABLE meetings ADD COLUMN {col} {col_type}")
+                    self._conn.commit()
+                except sqlite3.OperationalError:
+                    pass
 
     def save(self, meeting: Meeting) -> None:
         self._conn.execute(
@@ -132,10 +155,17 @@ class SqliteMeetingRepository(IMeetingRepository):
             ],
         }
 
+    def _get_row(self, row: sqlite3.Row, key: str, default=None):
+        try:
+            return row[key]
+        except (IndexError, KeyError):
+            return default
+
     def _deserialize(self, row: sqlite3.Row) -> Meeting:
         summary = None
-        if row["summary_json"]:
-            summary_data = json.loads(row["summary_json"])
+        summary_json = self._get_row(row, "summary_json")
+        if summary_json:
+            summary_data = json.loads(summary_json)
             summary = Summary(
                 overview=summary_data.get("overview", ""),
                 topics=summary_data.get("topics", []),
@@ -158,14 +188,14 @@ class SqliteMeetingRepository(IMeetingRepository):
                 ],
             )
         return Meeting(
-            id=row["id"],
-            title=row["title"],
-            started_at=datetime.fromisoformat(row["started_at"]),
-            audio_path=row["audio_path"],
-            transcript_text=row["transcript_text"] or "",
-            transcript_formatted=row["transcript_formatted"] or "",
-            participants=json.loads(row["participants_json"] or "[]"),
-            participant_info=json.loads(row["participant_info_json"] or "{}"),
-            duration_minutes=row["duration_minutes"] or 0.0,
+            id=self._get_row(row, "id", ""),
+            title=self._get_row(row, "title", ""),
+            started_at=datetime.fromisoformat(self._get_row(row, "started_at")) if self._get_row(row, "started_at") else datetime.now(),
+            audio_path=self._get_row(row, "audio_path"),
+            transcript_text=self._get_row(row, "transcript_text") or "",
+            transcript_formatted=self._get_row(row, "transcript_formatted") or "",
+            participants=json.loads(self._get_row(row, "participants_json") or "[]"),
+            participant_info=json.loads(self._get_row(row, "participant_info_json") or "{}"),
+            duration_minutes=self._get_row(row, "duration_minutes") or 0.0,
             summary=summary,
         )

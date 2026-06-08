@@ -22,6 +22,9 @@ _loop: Optional[asyncio.AbstractEventLoop] = None
 def _get_loop() -> asyncio.AbstractEventLoop:
     global _loop
     if _loop is None or _loop.is_closed():
+        import sys
+        if sys.platform == "win32":
+            asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
         _loop = asyncio.new_event_loop()
         asyncio.set_event_loop(_loop)
     return _loop

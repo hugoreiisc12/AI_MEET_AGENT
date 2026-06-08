@@ -35,5 +35,7 @@ pyaudio>=0.2.14
 # Gravação ativa
 # ffmpeg é uma dependência de sistema usada para decodificar/formatar áudio
 # gerado pelo recorder e pelo Whisper local. Instale-o antes de usar o projeto:
-#   brew install ffmpeg   (macOS)
-#   sudo apt install ffmpeg    (Linux)
+#   macOS:   brew install ffmpeg
+#   Linux:   sudo apt install ffmpeg
+#   Windows: choco install ffmpeg
+#            (ou baixe em https://www.gyan.dev/ffmpeg/builds/ e adicione ao PATH)

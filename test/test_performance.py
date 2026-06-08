@@ -1,6 +1,8 @@
 # Testes de performance e latência
 import pytest
+import tempfile
 import time
+from pathlib import Path
 from use_cases.transcribe_meeting import TranscribeMeetingUC, TranscribeMeetingInput
 from use_cases.summarize_meeting import SummarizeMeetingUC, SummarizeMeetingInput
 from use_cases.chat_with_meeting import ChatWithMeetingUC, ChatWithMeetingInput
@@ -50,7 +52,9 @@ class TestPerformance:
         uc = TranscribeMeetingUC(transcriber)
 
         start = time.time()
-        result = uc.execute(TranscribeMeetingInput(audio_path="/tmp/test.wav"))
+        result = uc.execute(TranscribeMeetingInput(
+            audio_path=str(Path(tempfile.gettempdir()) / "test.wav"),
+        ))
         elapsed = time.time() - start
 
         assert elapsed < 0.1, f"Transcrição demorou {elapsed:.3f}s"
@@ -100,7 +104,7 @@ class TestPerformance:
 
         for i in range(5):
             t_result = transcribe_uc.execute(TranscribeMeetingInput(
-                audio_path=f"/tmp/test{i}.wav"
+                audio_path=str(Path(tempfile.gettempdir()) / f"test{i}.wav"),
             ))
 
             meeting = Meeting(
@@ -147,7 +151,7 @@ class TestErrorHandling:
         uc = TranscribeMeetingUC(transcriber)
 
         result = uc.execute(TranscribeMeetingInput(
-            audio_path="/tmp/nao_existe_12345.wav"
+            audio_path=str(Path(tempfile.gettempdir()) / "nao_existe_12345.wav"),
         ))
 
         assert result.success == False

@@ -18,6 +18,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import os
+import sys
 import threading
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -53,6 +54,8 @@ class PlaywrightBotRecorder:
         'button[jsname="Qx7uuf"]',
         'button:has-text("Participar agora")',
         'button:has-text("Join now")',
+        'button:has-text("Pedir para entrar")',
+        'button:has-text("Ask to join")',
         'button:has-text("Entrar")',
         'button:has-text("Join")',
     ]
@@ -62,6 +65,13 @@ class PlaywrightBotRecorder:
         'button[aria-label*="microphone"]',
         'button[aria-label*="Mute"]',
         'button[aria-label*="Unmute"]',
+    ]
+
+    _SEL_CAM_BTN = [
+        'button[aria-label*="Câmera"]',
+        'button[aria-label*="câmera"]',
+        'button[aria-label*="Camera"]',
+        'button[aria-label*="camera"]',
     ]
 
     # Seletores que indicam que a reunião terminou (tela de saída do Meet)
@@ -113,6 +123,9 @@ class PlaywrightBotRecorder:
 
         def _run() -> None:
             try:
+                # Playwright no Windows exige ProactorEventLoop
+                if sys.platform == "win32":
+                    asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
                 asyncio.run(self._run_session(session))
             except Exception as exc:
                 session.status = "error"
@@ -153,15 +166,18 @@ class PlaywrightBotRecorder:
                 # 2. Verifica se o perfil já está logado no Google antes de entrar
                 await self._ensure_logged_in(page)
 
-                # 3. Garante que o bot está com microfone mudo antes de entrar
+                # 3. Desliga a câmera e silencia o microfone na tela de pré-entrada
+                await self._disable_camera_before_join(page)
                 await self._mute_before_join(page)
 
-                # 4. Entra na sala automaticamente
+                # 4. Entra na sala automaticamente (ou pede para entrar se necessário)
                 session.status = "joining"
                 await self._click_join_button(page)
 
                 # 5. Lê participantes e conta quantos estão na reunião
                 session.participant_info = await self._collect_participants(page)
+                # Adiciona o próprio bot como participante
+                session.participant_info["bot"] = self._email
                 current_count = await self._get_participant_count(page)
 
                 # 6. Inicia captura de áudio no browser e inicia amostragem do speaker ativo
@@ -171,9 +187,19 @@ class PlaywrightBotRecorder:
                 active_speaker_task = asyncio.create_task(
                     self._sample_active_speaker(page, session)
                 )
+                participant_refresh_task = asyncio.create_task(
+                    self._refresh_participants(page, session)
+                )
 
                 # 7. Aguarda a reunião terminar (ou timeout) com detecção de silêncio
                 await self._wait_until_meeting_ends(page, current_count, session)
+
+                # Cancela tasks auxiliares
+                participant_refresh_task.cancel()
+                try:
+                    await participant_refresh_task
+                except asyncio.CancelledError:
+                    pass
 
                 # 8. Garante parada da amostragem antes de salvar o áudio
                 active_speaker_task.cancel()
@@ -245,16 +271,19 @@ class PlaywrightBotRecorder:
             return
 
     async def _mute_before_join(self, page) -> None:
-        """Tenta silenciar o microfone automaticamente antes de entrar."""
+        """Silencia o microfone na tela de pré-entrada (se estiver ativado, desativa)."""
         for selector in self._SEL_MUTE_BTN:
             try:
-                button = await page.query_selector(selector)
+                button = await page.wait_for_selector(selector, timeout=3_000, state="attached")
                 if not button:
                     continue
                 label = (await button.get_attribute("aria-label") or "").lower()
-                if "microfone" in label or "microphone" in label or "mute" in label:
-                    if "desativar" in label or "mute microphone" in label or "mudo" in label:
+                is_currently_on = any(kw in label for kw in ["desativar", "turn off", "ativar", "turn on"])
+                if is_currently_on:
+                    is_mic_on = any(kw in label for kw in ["desativar", "turn off"])
+                    if is_mic_on:
                         await button.click()
+                        await asyncio.sleep(0.3)
                         return
             except Exception:
                 continue
@@ -263,18 +292,55 @@ class PlaywrightBotRecorder:
             await page.evaluate("""
                 (() => {
                     const buttons = Array.from(document.querySelectorAll('button'));
-                    const muteButton = buttons.find(el => {
-                        const label = (el.getAttribute('aria-label') || '').toLowerCase();
-                        return /microfone|microphone|mute|mudo/.test(label);
-                    });
-                    if (muteButton) {
-                        const label = (muteButton.getAttribute('aria-label') || '').toLowerCase();
-                        if (/desativar|mute microphone|mute|mudo/.test(label)) {
-                            muteButton.click();
+                    for (const btn of buttons) {
+                        const label = (btn.getAttribute('aria-label') || '').toLowerCase();
+                        if (/microfone|microphone/i.test(label)) {
+                            if (/desativar|turn off/i.test(label)) {
+                                btn.click();
+                                return;
+                            }
+                            break;
                         }
                     }
                 })();
             """)
+            await asyncio.sleep(0.3)
+        except Exception:
+            pass
+
+    async def _disable_camera_before_join(self, page) -> None:
+        """Desliga a câmera na tela de pré-entrada (se estiver ativada, desativa)."""
+        for selector in self._SEL_CAM_BTN:
+            try:
+                button = await page.wait_for_selector(selector, timeout=3_000, state="attached")
+                if not button:
+                    continue
+                label = (await button.get_attribute("aria-label") or "").lower()
+                is_cam_on = any(kw in label for kw in ["desativar", "turn off"])
+                if is_cam_on:
+                    await button.click()
+                    await asyncio.sleep(0.3)
+                    return
+            except Exception:
+                continue
+
+        try:
+            await page.evaluate("""
+                (() => {
+                    const buttons = Array.from(document.querySelectorAll('button'));
+                    for (const btn of buttons) {
+                        const label = (btn.getAttribute('aria-label') || '').toLowerCase();
+                        if (/câmera|camera|webcam/i.test(label)) {
+                            if (/desativar|turn off/i.test(label)) {
+                                btn.click();
+                                return;
+                            }
+                            break;
+                        }
+                    }
+                })();
+            """)
+            await asyncio.sleep(0.3)
         except Exception:
             pass
 
@@ -387,11 +453,10 @@ class PlaywrightBotRecorder:
             return {}
 
     async def _get_active_speaker(self, page) -> str | None:
-        """Retorna o participant-id do speaker ativo visível no Meet, se puder detectar."""
+        """Retorna o participant-id do speaker ativo visível no Meet."""
         try:
             active_id = await page.evaluate(r"""
                 (() => {
-                    const emailRegex = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/;
                     const normalize = (value) => (value || '').toString().trim();
                     const tiles = Array.from(document.querySelectorAll('[data-participant-id]'));
                     const visible = tiles.filter(el => el.offsetParent !== null);
@@ -402,26 +467,37 @@ class PlaywrightBotRecorder:
                         const name = normalize(el.getAttribute('data-participant-name') || el.dataset.participantName);
                         const aria = normalize(el.getAttribute('aria-label'));
                         const text = normalize(el.innerText);
-                        let label = email || name || aria || text;
-                        const emailMatch = label.match(emailRegex);
-                        if (emailMatch) {
-                            label = emailMatch[0];
-                        }
-                        return label;
+                        return email || name || aria || text || el.getAttribute('data-participant-id') || '';
                     };
 
-                    const active = candidates.find(el => {
+                    const isSpeaking = (el) => {
                         const aria = normalize(el.getAttribute('aria-label')).toLowerCase();
                         const cls = normalize(el.className).toLowerCase();
                         return aria.includes('falando')
                             || aria.includes('speaking')
+                            || aria.includes('falar')
                             || cls.includes('active-speaker')
                             || cls.includes('active')
-                            || cls.includes('speaking');
-                    });
+                            || cls.includes('speaking')
+                            || cls.includes('highlight');
+                    };
 
-                    if (active && active.getAttribute('data-participant-id')) {
-                        return active.getAttribute('data-participant-id');
+                    const active = candidates.find(isSpeaking);
+
+                    if (active) {
+                        const id = active.getAttribute('data-participant-id');
+                        if (id) return id;
+                    }
+
+                    if (candidates.length === 2) {
+                        const botIndex = candidates.findIndex(el => {
+                            const label = getLabel(el);
+                            return label.includes('Meet Agent') || label.includes('bot');
+                        });
+                        if (botIndex >= 0) {
+                            const otherId = candidates[1 - botIndex].getAttribute('data-participant-id');
+                            if (otherId) return otherId;
+                        }
                     }
 
                     return null;
@@ -442,6 +518,19 @@ class PlaywrightBotRecorder:
                     "participant_id": speaker_id,
                 })
             await asyncio.sleep(2)
+
+    async def _refresh_participants(self, page, session: BotSession) -> None:
+        """Re-scaneia participantes periodicamente para capturar quem entra/sai."""
+        await asyncio.sleep(30)
+        while True:
+            try:
+                fresh = await self._collect_participants(page)
+                if fresh:
+                    session.participant_info.update(fresh)
+                session.participant_info["bot"] = self._email
+            except Exception:
+                pass
+            await asyncio.sleep(60)
 
     #  Detectar fim da reunião
     async def _wait_until_meeting_ends(self, page, initial_count: int, session: BotSession) -> None:
