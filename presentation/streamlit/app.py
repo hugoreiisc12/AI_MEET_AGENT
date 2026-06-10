@@ -2,9 +2,15 @@
 presentation/streamlit/app.py
 
 Envia o bot para um link do Google Meet, aguarda o processamento e abre o chat.
+
+S5 — Bot roda em processo separado (run_bot.py) para evitar loop infinito
+e problemas de event loop no Windows. UI acompanha via polling de JSON.
 """
 
-import sys, os, uuid
+import json
+import subprocess
+import sys
+import uuid
 from datetime import datetime
 from pathlib import Path
 
@@ -18,11 +24,6 @@ from use_cases.chat_with_meeting import ChatWithMeetingInput
 from infrastructure.email.email_sender import EmailSender
 from infrastructure.pipeline.meeting_pipeline_orchestrator import MeetingPipelineOrchestrator
 
-try:
-    import requests
-    HAS_REQUESTS = True
-except ImportError:
-    HAS_REQUESTS = False
 
 try:
     from streamlit_autorefresh import st_autorefresh
@@ -31,6 +32,7 @@ except ImportError:
     HAS_AUTOREFRESH = False
 
 settings = get_settings()
+AUDIO_DIR = Path(settings.audio_storage_path)
 
 @st.cache_resource
 def get_app_container():
@@ -54,12 +56,51 @@ def _init():
         "pending_task": None,
         "task_email_sent": False,
         "task_email_content": "",
+        "bot_process": None,
+        "bot_session_id": None,
     }
     for k, v in defaults.items():
         if k not in st.session_state:
             st.session_state[k] = v
 
 _init()
+
+def _bot_is_running() -> bool:
+    proc = st.session_state.get("bot_process")
+    return proc is not None and proc.poll() is None
+
+def _start_bot(meeting_url: str) -> None:
+    """S5 — Lança o bot em PROCESSO separado."""
+    proc = subprocess.Popen(
+        [sys.executable, "-m", "infrastructure.recorder.run_bot",
+         "--url", meeting_url],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    st.session_state.bot_process = proc
+    st.session_state.bot_session_id = None
+
+def _read_bot_status() -> dict | None:
+    """Lê o JSON de status mais recente do bot."""
+    proc = st.session_state.get("bot_process")
+    if proc is None:
+        return None
+    if st.session_state.get("bot_session_id") is None and proc.poll() is not None:
+        out = (proc.stdout.read() or "").strip().splitlines()
+        if out:
+            st.session_state.bot_session_id = out[0]
+    sid = st.session_state.get("bot_session_id")
+    if not sid:
+        candidates = sorted(
+            AUDIO_DIR.glob("bot_session_*.json"),
+            key=lambda p: p.stat().st_mtime, reverse=True,
+        )
+        if not candidates:
+            return None
+        return json.loads(candidates[0].read_text(encoding="utf-8"))
+    path = AUDIO_DIR / f"bot_session_{sid}.json"
+    return json.loads(path.read_text(encoding="utf-8")) if path.exists() else None
 
 def _render_sidebar():
     with st.sidebar:
@@ -101,19 +142,14 @@ def _render_sidebar():
                 st.session_state.chat_mode = False
                 st.rerun()
 
-        # Direct Query: auto-refresh baseado no estado real dos dados
         if HAS_AUTOREFRESH:
-            bot_active = (
-                hasattr(container, "record_meeting")
-                and container.record_meeting
-                and container.record_meeting.list_active_sessions()
-            )
-            if bot_active or processing_count > 0:
+            bot_running = _bot_is_running()
+            if bot_running or processing_count > 0:
                 st_autorefresh(interval=10_000, key="direct_query_autorefresh")
-                if bot_active:
-                    st.caption("🤖 Bot em reunião — Direct Query a cada 10s")
+                if bot_running:
+                    st.caption("🤖 Bot em reunião — status a cada 10s")
                 else:
-                    st.caption(f"⚡ {processing_count} reunião(ões) processando — Direct Query a cada 10s")
+                    st.caption(f"⚡ {processing_count} reunião(ões) processando")
 
         if st.session_state.meeting:
             st.divider()
@@ -129,12 +165,14 @@ st.title("🎤 Meet Agent")
 if st.session_state.meeting is None:
     st.subheader("Enviar bot para a reunião")
 
-    if hasattr(container, "record_meeting") and container.record_meeting:
-        active = container.record_meeting.list_active_sessions()
-        if active:
-            st.info(f"🤖 Bot ativo em {len(active)} reunião(ões)")
-            for s in active:
-                st.caption(f"Session {s.session_id} — {s.status} — {s.duration_seconds/60:.1f} min")
+    bot_running = _bot_is_running()
+    if bot_running:
+        st.info("🤖 Bot está ativo em uma reunião.")
+        status = _read_bot_status()
+        if status:
+            st.caption(f"Status: {status.get('status', 'desconhecido')}")
+            if status.get("error"):
+                st.error(status["error"])
 
     col_form, col_status = st.columns([1, 1], gap="large")
 
@@ -159,61 +197,16 @@ if st.session_state.meeting is None:
 
         if st.button(
             "🚀 Enviar bot para a reunião",
-            disabled=not (meet_url and meeting_title),
+            disabled=bot_running or not (meet_url and meeting_title),
             type="primary",
             use_container_width=True,
         ):
-            if not hasattr(container, "record_meeting") or not container.record_meeting:
-                st.error(
-                    "Bot não configurado. Adicione no `.env`:\n"
-                    "```\nRECORDER_PROVIDER=playwright\n"
-                    "BOT_GOOGLE_EMAIL=seubot@gmail.com\n"
-                    "BOT_GOOGLE_PASSWORD=senha\n```\n"
-                    "E execute: `python bot_setup.py`"
-                )
-            else:
-                with st.spinner("Enviando bot para a reunião..."):
-                    from use_cases.record_meeting import SendBotInput
-
-                    safe_meet_url = meet_url or ""
-                    meeting_id = str(uuid.uuid4())
-
-                    def on_done(
-                        audio_path: str,
-                        title: str,
-                        participant_info: dict[str, str],
-                        speaker_observations: list[dict[str, float | str]],
-                        mid: str,
-                    ) -> None:
-                        """Dispara o pipeline completo (transcrever → sumarizar → salvar)."""
-                        c = get_container()
-                        c.pipeline_orchestrator.run_pipeline(
-                            meeting_id=mid,
-                            audio_path=audio_path,
-                            title=title,
-                            participant_info=participant_info or {},
-                            speaker_observations=speaker_observations or [],
-                        )
-                        print(f"[Bot] ✅ Pipeline disparado: {title} ({mid})")
-
-                    result = container.record_meeting.send_bot(
-                        SendBotInput(
-                            meeting_url=safe_meet_url,
-                            title=meeting_title,
-                            meeting_id=meeting_id,
-                            on_finished=on_done,
-                        )
-                    )
-
-                if result.success:
-                    st.success("✅ Bot enviado! Ele está entrando na reunião agora.")
-                    st.info(
-                        f"**Meeting ID:** `{meeting_id}`\n\n"
-                        "Quando a reunião terminar, o resumo aparecerá automaticamente "
-                        "no histórico de reuniões."
-                    )
-                else:
-                    st.error(f"Erro: {result.error_message}")
+            _start_bot(meet_url)
+            st.success("✅ Bot iniciado em processo separado.")
+            st.info(
+                "O bot está entrando na reunião. Acompanhe o status no painel. "
+                "Quando a reunião terminar, o resumo aparecerá no histórico."
+            )
 
     with col_status:
         st.markdown("### 📋 Como funciona")
@@ -225,17 +218,17 @@ if st.session_state.meeting is None:
         5. O áudio é transcrito e o resumo fica disponível aqui
 
         **Nota:** Use uma conta Google dedicada para o bot.
-        Configure com `python bot_setup.py`.
+        Configure com: `python infrastructure/recorder/bot_setup.py`
         """)
 
     st.divider()
     st.markdown("### 🔍 Buscar reunião processada")
-    meeting_id = st.text_input(
+    search_id = st.text_input(
         "ID da reunião",
         placeholder="Cole o ID gerado após o processamento",
     )
-    if st.button("Buscar", disabled=not meeting_id):
-        found_meeting: Meeting | None = container.repository.find_by_id(meeting_id.strip())
+    if st.button("Buscar", disabled=not search_id):
+        found_meeting: Meeting | None = container.repository.find_by_id(search_id.strip())
         if found_meeting and found_meeting.is_summarized:
             st.session_state.meeting = found_meeting
             st.session_state.chat_history = []

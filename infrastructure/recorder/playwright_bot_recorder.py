@@ -1,642 +1,292 @@
 """
+playwright_bot_recorder.py — Bot Playwright corrigido.
 
-Este módulo contém a implementação do `PlaywrightBotRecorder` usada para
-entrar em chamadas do Google Meet e coletar áudio localmente.
-
-Fluxo:
-    join_async()
-          run_session()
-             ├─ _click_join_button()       # entra na sala
-             ├─ _inject_audio_capture()    # inicia gravação no browser
-             ├─ _wait_until_meeting_ends() # aguarda fim real da reunião
-             ├─ _collect_and_save_audio()  # lê chunks JS → salva .webm
-             └─ session.status = "done"   # sinaliza para RecordMeetingUC
+Correções aplicadas:
+  S1 — Login: launch_persistent_context() com perfil Chrome salvo pelo
+       bot_setup.py + _verify_logged_in() como sanity check.
+  S2 — Áudio: injeção do audio_capture.js (intercepta <audio> do Meet)
+       em vez de getUserMedia (microfone local).
+  S3 — Entrega: callback on_audio_ready injetado pelo use case.
+  S4 — Fim de reunião: 3 sinais combinados (tela de saída, sozinho na
+       sala, silêncio prolongado).
+  S6 — Etapas documentadas pelos próprios session.status.
+  S7 — Log temporal de voz/speaker salvo como JSON ao lado do .webm.
 """
-
 from __future__ import annotations
 
 import asyncio
 import base64
-import os
-import sys
-import threading
+import json
+import logging
+import re
+import time
+import uuid
 from dataclasses import dataclass, field
-from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import Awaitable, Callable, Optional
+
+from playwright.async_api import BrowserContext, Page, async_playwright
+
+logger = logging.getLogger(__name__)
+
+AUDIO_CAPTURE_JS = (Path(__file__).parent / "audio_capture.js").read_text(
+    encoding="utf-8"
+)
+
+OnAudioReady = Callable[[Path, Path], Awaitable[None]]
+
+
+class BotNotLoggedInError(RuntimeError):
+    """Sessão Google expirada/inexistente — rodar bot_setup.py novamente."""
 
 
 @dataclass
 class BotSession:
     meeting_url: str
-    output_path: Optional[Path] = None
-    status: str = "idle"
-    started_at: Optional[datetime] = None
-    recording_started_at: Optional[datetime] = None
-    finished_at: Optional[datetime] = None
-    error_message: str = ""
-    audio_chunks: list[str] = field(default_factory=list, repr=False)
-    participant_info: dict[str, str] = field(default_factory=dict)
-    speaker_observations: list[dict[str, float | str]] = field(default_factory=list)
+    id: str = field(default_factory=lambda: uuid.uuid4().hex[:12])
+    status: str = "created"
+    error: Optional[str] = None
+    audio_path: Optional[Path] = None
+    speaker_log_path: Optional[Path] = None
 
-    @property
-    def duration_seconds(self) -> float:
-        if self.started_at and self.finished_at:
-            return (self.finished_at - self.started_at).total_seconds()
-        return 0.0
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "meeting_url": self.meeting_url,
+            "status": self.status,
+            "error": self.error,
+            "audio_path": str(self.audio_path) if self.audio_path else None,
+            "speaker_log_path": (
+                str(self.speaker_log_path) if self.speaker_log_path else None
+            ),
+        }
 
 
 class PlaywrightBotRecorder:
-    # Seletores do botão "Participar" — Google Meet muda o DOM com frequência,
-    # então tentamos vários em ordem até um funcionar.
-    _SEL_JOIN_BTN = [
-        '[data-promo-anchor-id="join-button"]',
-        'button[jsname="Qx7uuf"]',
-        'button:has-text("Participar agora")',
-        'button:has-text("Join now")',
-        'button:has-text("Pedir para entrar")',
-        'button:has-text("Ask to join")',
-        'button:has-text("Entrar")',
-        'button:has-text("Join")',
-    ]
+    """Bot que entra no Google Meet, grava áudio da reunião e entrega
+    o resultado via callback."""
 
-    _SEL_MUTE_BTN = [
-        'button[aria-label*="Microfone"]',
-        'button[aria-label*="microphone"]',
-        'button[aria-label*="Mute"]',
-        'button[aria-label*="Unmute"]',
-    ]
-
-    _SEL_CAM_BTN = [
-        'button[aria-label*="Câmera"]',
-        'button[aria-label*="câmera"]',
-        'button[aria-label*="Camera"]',
-        'button[aria-label*="camera"]',
-    ]
-
-    # Seletores que indicam que a reunião terminou (tela de saída do Meet)
-    _SEL_MEETING_ENDED = [
-        '[data-call-ended="true"]',
-        'button:has-text("Voltar para a tela inicial")',
-        'button:has-text("Return to home screen")',
-        'h1:has-text("Você saiu da videochamada")',
-        'h1:has-text("You left the video call")',
-    ]
-
-    # Timeout máximo de gravação: 4 horas (segurança contra reuniões infinitas)
-    _MAX_RECORDING_SECONDS = 4 * 60 * 60
-
-    # Intervalo de polling para detectar fim da reunião
-    _POLL_INTERVAL_SECONDS = 10
-
-    # Se ninguém falar por esse período (em segundos), considera reunião encerrada
-    _SILENCE_TIMEOUT = 300  # 5 minutos — evita sair prematuramente em pausas normais
-
-    # Tempo mínimo de gravação antes de considerar detecção por silêncio
-    _MIN_RECORDING_BEFORE_SILENCE = 120  # 2 minutos
+    ALONE_TIMEOUT = 60
+    SILENCE_TIMEOUT = 300
+    POLL_INTERVAL = 5
+    JOIN_TIMEOUT = 120_000
 
     def __init__(
         self,
-        google_email: str,
-        google_password: str,
-        profile_dir: str = "./bot_chrome_profile",
-        bot_name: str = "Meet Agent 🤖",
-        output_dir: str = "data/audio",
+        chrome_profile_dir: str | Path,
+        audio_dir: str | Path,
+        bot_name: str = "Meet Agent",
         headless: bool = False,
+        status_dir: str | Path | None = None,
+        on_audio_ready: OnAudioReady | None = None,
     ) -> None:
-        self._email = google_email
-        self._password = google_password
-        self._profile_dir = Path(profile_dir)
-        self._bot_name = bot_name
-        self._output_dir = Path(output_dir)
-        self._headless = headless
+        self.chrome_profile_dir = Path(chrome_profile_dir)
+        self.audio_dir = Path(audio_dir)
+        self.audio_dir.mkdir(parents=True, exist_ok=True)
+        self.bot_name = bot_name
+        self.headless = headless
+        self.status_dir = Path(status_dir) if status_dir else self.audio_dir
+        self.on_audio_ready = on_audio_ready
+        self.session: Optional[BotSession] = None
 
-        self._profile_dir.mkdir(parents=True, exist_ok=True)
-        self._output_dir.mkdir(parents=True, exist_ok=True)
+    async def join_async(self, meeting_url: str) -> BotSession:
+        self.session = BotSession(meeting_url=meeting_url)
+        self._persist_status()
+        try:
+            await self._run_session()
+        except Exception as exc:
+            logger.exception("Sessão do bot falhou")
+            self._set_status("failed", error=f"{type(exc).__name__}: {exc}")
+            raise
+        return self.session
 
-    # ── API pública ────────────────────────────────────────────────────────
-
-    def join_async(self, meeting_url: str) -> tuple[BotSession, threading.Thread]:
-        """Inicia o bot em background. Retorna (session, thread) imediatamente."""
-        output_path = self._output_dir / f"bot_{datetime.now().strftime('%Y%m%d_%H%M%S')}.webm"
-        session = BotSession(meeting_url=meeting_url, output_path=output_path)
-
-        def _run() -> None:
-            try:
-                # Playwright no Windows exige ProactorEventLoop
-                if sys.platform == "win32":
-                    asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
-                asyncio.run(self._run_session(session))
-            except Exception as exc:
-                session.status = "error"
-                session.error_message = str(exc)
-                session.finished_at = datetime.now()
-
-        thread = threading.Thread(target=_run, daemon=True)
-        thread.start()
-        return session, thread
-
-    # ── Ciclo de vida da sessão ────────────────────────────────────────────
-
-    async def _run_session(self, session: BotSession) -> None:
-        from playwright.async_api import async_playwright
-
-        session.status = "logging_in"
-        session.started_at = datetime.now()
-
-        async with async_playwright() as p:
-            context = await p.chromium.launch_persistent_context(
-                user_data_dir=str(self._profile_dir),
-                headless=self._headless,
+    async def _run_session(self) -> None:
+        assert self.session is not None
+        async with async_playwright() as pw:
+            context = await pw.chromium.launch_persistent_context(
+                user_data_dir=str(self.chrome_profile_dir),
+                headless=self.headless,
+                permissions=["microphone", "camera"],
                 args=[
-                    "--use-fake-ui-for-media-stream",   # libera getUserMedia sem popup
                     "--disable-blink-features=AutomationControlled",
-                    "--disable-background-timer-throttling",
-                    "--disable-renderer-backgrounding",
-                    "--disable-backgrounding-occluded-windows",
-                    "--autoplay-policy=no-user-gesture-required",
+                    "--use-fake-ui-for-media-stream",
                 ],
             )
-            page = await context.new_page()
-
             try:
-                # 1. Navega para a reunião
-                await page.goto(session.meeting_url, wait_until="networkidle", timeout=30_000)
+                page = context.pages[0] if context.pages else await context.new_page()
 
-                # 2. Verifica se o perfil já está logado no Google antes de entrar
-                await self._ensure_logged_in(page)
+                self._set_status("logging_in")
+                await self._verify_logged_in(page)
 
-                # 3. Desliga a câmera e silencia o microfone na tela de pré-entrada
-                await self._disable_camera_before_join(page)
-                await self._mute_before_join(page)
-
-                # 4. Entra na sala automaticamente (ou pede para entrar se necessário)
-                session.status = "joining"
+                self._set_status("joining")
+                await page.goto(
+                    self.session.meeting_url, wait_until="domcontentloaded"
+                )
+                await self._verify_logged_in(page)
+                await self._prepare_devices(page)
                 await self._click_join_button(page)
+                await self._wait_admitted(page)
 
-                # 5. Lê participantes e conta quantos estão na reunião
-                session.participant_info = await self._collect_participants(page)
-                # Adiciona o próprio bot como participante
-                session.participant_info["bot"] = self._email
-                current_count = await self._get_participant_count(page)
-
-                # 6. Inicia captura de áudio no browser e inicia amostragem do speaker ativo
-                session.status = "recording"
+                self._set_status("recording")
                 await self._inject_audio_capture(page)
-                session.recording_started_at = datetime.now()
-                active_speaker_task = asyncio.create_task(
-                    self._sample_active_speaker(page, session)
-                )
-                participant_refresh_task = asyncio.create_task(
-                    self._refresh_participants(page, session)
-                )
+                await self._wait_until_meeting_ends(page)
 
-                # 7. Aguarda a reunião terminar (ou timeout) com detecção de silêncio
-                await self._wait_until_meeting_ends(page, current_count, session)
+                self._set_status("saving")
+                await self._collect_and_save_audio(page)
 
-                # Cancela tasks auxiliares
-                participant_refresh_task.cancel()
-                try:
-                    await participant_refresh_task
-                except asyncio.CancelledError:
-                    pass
+                self._set_status("delivering")
+                await self._deliver()
 
-                # 8. Garante parada da amostragem antes de salvar o áudio
-                active_speaker_task.cancel()
-                try:
-                    await active_speaker_task
-                except asyncio.CancelledError:
-                    pass
-
-                # 9. Coleta chunks gravados e salva em disco
-                await self._collect_and_save_audio(page, session)
-
+                self._set_status("done")
             finally:
-                # Garante que o contexto sempre fecha, mesmo em erro
                 await context.close()
 
-        # 9. Marca sessão como concluída — _watch() em RecordMeetingUC detecta aqui
-        if session.error_message:
-            session.status = "error"
-        else:
-            session.status = "done"
-        session.finished_at = datetime.now()
+    async def _verify_logged_in(self, page: Page) -> None:
+        url = page.url or ""
+        if "accounts.google.com" in url:
+            raise BotNotLoggedInError(
+                "Sessão Google expirada ou inexistente no perfil "
+                f"'{self.chrome_profile_dir}'. Rode novamente: "
+                "python infrastructure/recorder/bot_setup.py"
+            )
+        login_btn = page.locator(
+            'a:has-text("Fazer login"), a:has-text("Sign in")'
+        )
+        if await login_btn.count() > 0 and await login_btn.first.is_visible():
+            raise BotNotLoggedInError(
+                "Página do Meet exibindo 'Fazer login' — sessão inválida. "
+                "Rode novamente o bot_setup.py."
+            )
 
-    #  Entrar na reunião 
-
-    async def _click_join_button(self, page) -> None:
-        """Tenta cada seletor do botão 'Participar' até um funcionar."""
-        for selector in self._SEL_JOIN_BTN:
+    async def _prepare_devices(self, page: Page) -> None:
+        for label_part in ("microfone", "microphone", "câmera", "camera"):
             try:
-                await page.wait_for_selector(selector, timeout=5_000, state="visible")
-                await page.click(selector)
-                # Aguarda navegação após clicar
-                await page.wait_for_load_state("networkidle", timeout=10_000)
-                return
-            except Exception:
-                continue
-
-        # Tentativa fallback mais agressiva no caso do Meet mudar o seletor
-        try:
-            await page.evaluate("""
-                (() => {
-                    const buttons = Array.from(document.querySelectorAll('button'));
-                    const joinButton = buttons.find(el => {
-                        const text = (el.innerText || el.getAttribute('aria-label') || '').toLowerCase();
-                        return /participar agora|entrar agora|join now|join|participar/.test(text);
-                    });
-                    if (joinButton) {
-                        joinButton.click();
-                    }
-                })();
-            """)
-            await page.wait_for_load_state("networkidle", timeout=10_000)
-        except Exception:
-            # Se nenhum seletor funcionou, a reunião pode já ter começado
-            # ou o usuário já está dentro — segue em frente sem erro fatal.
-            pass
-
-    async def _ensure_logged_in(self, page) -> None:
-        """Verifica se o perfil do bot já está logado no Google Meet."""
-        try:
-            sign_in_prompt = await page.query_selector('input[type="email"], input[type="password"], button[jsname="LgbsSe"]')
-            if sign_in_prompt:
-                raise RuntimeError(
-                    "Bot não está logado no Google. Faça login no perfil do bot antes de rodar." 
-                    f"Veja o perfil em: {self._profile_dir}"
+                btn = page.locator(
+                    f'[aria-label*="Desativar"][aria-label*="{label_part}" i], '
+                    f'[aria-label*="Turn off"][aria-label*="{label_part}" i]'
                 )
-        except Exception as exc:
-            if isinstance(exc, RuntimeError):
-                raise
-            return
-
-    async def _mute_before_join(self, page) -> None:
-        """Silencia o microfone na tela de pré-entrada (se estiver ativado, desativa)."""
-        for selector in self._SEL_MUTE_BTN:
-            try:
-                button = await page.wait_for_selector(selector, timeout=3_000, state="attached")
-                if not button:
-                    continue
-                label = (await button.get_attribute("aria-label") or "").lower()
-                is_currently_on = any(kw in label for kw in ["desativar", "turn off", "ativar", "turn on"])
-                if is_currently_on:
-                    is_mic_on = any(kw in label for kw in ["desativar", "turn off"])
-                    if is_mic_on:
-                        await button.click()
-                        await asyncio.sleep(0.3)
-                        return
-            except Exception:
-                continue
-
-        try:
-            await page.evaluate("""
-                (() => {
-                    const buttons = Array.from(document.querySelectorAll('button'));
-                    for (const btn of buttons) {
-                        const label = (btn.getAttribute('aria-label') || '').toLowerCase();
-                        if (/microfone|microphone/i.test(label)) {
-                            if (/desativar|turn off/i.test(label)) {
-                                btn.click();
-                                return;
-                            }
-                            break;
-                        }
-                    }
-                })();
-            """)
-            await asyncio.sleep(0.3)
-        except Exception:
-            pass
-
-    async def _disable_camera_before_join(self, page) -> None:
-        """Desliga a câmera na tela de pré-entrada (se estiver ativada, desativa)."""
-        for selector in self._SEL_CAM_BTN:
-            try:
-                button = await page.wait_for_selector(selector, timeout=3_000, state="attached")
-                if not button:
-                    continue
-                label = (await button.get_attribute("aria-label") or "").lower()
-                is_cam_on = any(kw in label for kw in ["desativar", "turn off"])
-                if is_cam_on:
-                    await button.click()
-                    await asyncio.sleep(0.3)
-                    return
-            except Exception:
-                continue
-
-        try:
-            await page.evaluate("""
-                (() => {
-                    const buttons = Array.from(document.querySelectorAll('button'));
-                    for (const btn of buttons) {
-                        const label = (btn.getAttribute('aria-label') || '').toLowerCase();
-                        if (/câmera|camera|webcam/i.test(label)) {
-                            if (/desativar|turn off/i.test(label)) {
-                                btn.click();
-                                return;
-                            }
-                            break;
-                        }
-                    }
-                })();
-            """)
-            await asyncio.sleep(0.3)
-        except Exception:
-            pass
-
-    #  Gravação de áudio 
-
-    async def _inject_audio_capture(self, page) -> None:
-        """
-        Injeta MediaRecorder no browser para capturar áudio.
-        Usa captura de aba/sistema sempre que possível e cai para o microfone local.
-        Os chunks ficam em window.__audioChunks como strings base64.
-
-        Nota: getUserMedia({ audio: true }) captura o microfone local.
-        Para capturar áudio do Meet, é necessário um fluxo de captura de aba/sistema.
-        """
-        await page.evaluate("""
-            window.__audioChunks = [];
-            window.__recordingActive = false;
-
-            async function startAudioCapture() {
-                try {
-                    let stream;
-                    try {
-                        stream = await navigator.mediaDevices.getDisplayMedia({ audio: true, video: false });
-                    } catch (err) {
-                        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                    }
-
-                    const mr = new MediaRecorder(stream, { mimeType: 'audio/webm;codecs=opus' });
-
-                    mr.ondataavailable = (e) => {
-                        if (e.data && e.data.size > 0) {
-                            const reader = new FileReader();
-                            reader.onloadend = () => {
-                                const base64 = reader.result.split(',')[1];
-                                window.__audioChunks.push(base64);
-                            };
-                            reader.readAsDataURL(e.data);
-                        }
-                    };
-
-                    mr.start(5000);  // chunk a cada 5 segundos
-                    window.__recordingActive = true;
-                    window.__mediaRecorder = mr;
-                } catch (e) {
-                    console.error('AudioCapture error:', e);
-                }
-            }
-
-            startAudioCapture();
-        """)
-
-    async def _collect_and_save_audio(self, page, session: BotSession) -> None:
-        """
-        Lê window.__audioChunks do browser, decodifica base64 e salva em disco.
-        O arquivo salvo é .webm (opus) — compatível com Whisper via ffmpeg.
-        """
-        try:
-            # Para o MediaRecorder para forçar flush do último chunk
-            await page.evaluate("""
-                if (window.__mediaRecorder && window.__mediaRecorder.state !== 'inactive') {
-                    window.__mediaRecorder.stop();
-                }
-            """)
-            # Dá tempo para o último ondataavailable disparar
-            await asyncio.sleep(1)
-
-            chunks: list[str] = await page.evaluate("window.__audioChunks || []")
-
-            if not chunks or session.output_path is None:
-                session.error_message = "Nenhum chunk de áudio coletado."
-                return
-
-            # Decodifica e concatena os chunks base64 → arquivo binário
-            with open(session.output_path, "wb") as f:
-                for chunk_b64 in chunks:
-                    f.write(base64.b64decode(chunk_b64))
-
-        except Exception as exc:
-            session.error_message = f"Erro ao salvar áudio: {exc}"
-
-    async def _collect_participants(self, page) -> dict[str, str]:
-        """Coleta participantes visíveis no Meet com ID e label preferindo email."""
-        try:
-            entries = await page.evaluate(r"""
-                (() => {
-                    const emailRegex = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/;
-                    const normalize = (value) => (value || '').toString().trim();
-                    const tiles = Array.from(document.querySelectorAll('[data-participant-id]'));
-                    return tiles
-                        .filter(el => el.offsetParent !== null)
-                        .map(el => {
-                            const id = el.getAttribute('data-participant-id') || el.dataset.participantId || '';
-                            if (!id) return null;
-                            const email = normalize(el.getAttribute('data-participant-email') || el.dataset.participantEmail);
-                            const name = normalize(el.getAttribute('data-participant-name') || el.dataset.participantName);
-                            const aria = normalize(el.getAttribute('aria-label'));
-                            const text = normalize(el.innerText);
-                            let label = email || name || aria || text || id;
-                            const emailMatch = label.match(emailRegex);
-                            if (emailMatch) {
-                                label = emailMatch[0];
-                            }
-                            return { id, label };
-                        })
-                        .filter(Boolean);
-                })()
-            """)
-            return {entry['id']: entry['label'] for entry in entries if entry and entry.get('id')}
-        except Exception:
-            return {}
-
-    async def _get_active_speaker(self, page) -> str | None:
-        """Retorna o participant-id do speaker ativo visível no Meet."""
-        try:
-            active_id = await page.evaluate(r"""
-                (() => {
-                    const normalize = (value) => (value || '').toString().trim();
-                    const tiles = Array.from(document.querySelectorAll('[data-participant-id]'));
-                    const visible = tiles.filter(el => el.offsetParent !== null);
-                    const candidates = visible.length ? visible : tiles;
-
-                    const getLabel = (el) => {
-                        const email = normalize(el.getAttribute('data-participant-email') || el.dataset.participantEmail);
-                        const name = normalize(el.getAttribute('data-participant-name') || el.dataset.participantName);
-                        const aria = normalize(el.getAttribute('aria-label'));
-                        const text = normalize(el.innerText);
-                        return email || name || aria || text || el.getAttribute('data-participant-id') || '';
-                    };
-
-                    const isSpeaking = (el) => {
-                        const aria = normalize(el.getAttribute('aria-label')).toLowerCase();
-                        const cls = normalize(el.className).toLowerCase();
-                        return aria.includes('falando')
-                            || aria.includes('speaking')
-                            || aria.includes('falar')
-                            || cls.includes('active-speaker')
-                            || cls.includes('active')
-                            || cls.includes('speaking')
-                            || cls.includes('highlight');
-                    };
-
-                    const active = candidates.find(isSpeaking);
-
-                    if (active) {
-                        const id = active.getAttribute('data-participant-id');
-                        if (id) return id;
-                    }
-
-                    if (candidates.length === 2) {
-                        const botIndex = candidates.findIndex(el => {
-                            const label = getLabel(el);
-                            return label.includes('Meet Agent') || label.includes('bot');
-                        });
-                        if (botIndex >= 0) {
-                            const otherId = candidates[1 - botIndex].getAttribute('data-participant-id');
-                            if (otherId) return otherId;
-                        }
-                    }
-
-                    return null;
-                })()
-            """)
-            return active_id or None
-        except Exception:
-            return None
-
-    async def _sample_active_speaker(self, page, session: BotSession) -> None:
-        """Amostra o speaker ativo periodicamente para inferir quem fala em cada intervalo."""
-        while True:
-            speaker_id = await self._get_active_speaker(page)
-            if speaker_id and session.recording_started_at:
-                offset = (datetime.now() - session.recording_started_at).total_seconds()
-                session.speaker_observations.append({
-                    "timestamp": round(offset, 3),
-                    "participant_id": speaker_id,
-                })
-            await asyncio.sleep(2)
-
-    async def _refresh_participants(self, page, session: BotSession) -> None:
-        """Re-scaneia participantes periodicamente para capturar quem entra/sai."""
-        await asyncio.sleep(30)
-        while True:
-            try:
-                fresh = await self._collect_participants(page)
-                if fresh:
-                    session.participant_info.update(fresh)
-                session.participant_info["bot"] = self._email
+                if await btn.count() > 0:
+                    await btn.first.click(timeout=3000)
             except Exception:
                 pass
-            await asyncio.sleep(60)
 
-    #  Detectar fim da reunião
-    async def _wait_until_meeting_ends(self, page, initial_count: int, session: BotSession) -> None:
-        elapsed = 0
-        solo_counter = 0
-        zero_counter = 0
-        silence_counter = 0
+    async def _click_join_button(self, page: Page) -> None:
+        join = page.locator(
+            'button:has-text("Participar agora"), '
+            'button:has-text("Pedir para participar"), '
+            'button:has-text("Join now"), '
+            'button:has-text("Ask to join")'
+        )
+        await join.first.click(timeout=30_000)
 
-        while elapsed < self._MAX_RECORDING_SECONDS:
-            await asyncio.sleep(self._POLL_INTERVAL_SECONDS)
-            elapsed += self._POLL_INTERVAL_SECONDS
+    async def _wait_admitted(self, page: Page) -> None:
+        in_call = page.locator(
+            '[aria-label*="Sair da chamada" i], [aria-label*="Leave call" i]'
+        )
+        await in_call.first.wait_for(state="visible", timeout=self.JOIN_TIMEOUT)
 
-            # 1. Tela de reunião encerrada (mais confiável)
-            if await self._is_meeting_ended_screen(page):
+    async def _inject_audio_capture(self, page: Page) -> None:
+        await page.evaluate(AUDIO_CAPTURE_JS)
+        await page.evaluate("window.__meetCapture._resume()")
+        state = await page.evaluate("window.__meetCapture.getState()")
+        logger.info("Captura iniciada: %s", state)
+        if not state.get("recording"):
+            raise RuntimeError(f"MediaRecorder não iniciou: {state}")
+
+    async def _get_participant_count(self, page: Page) -> int:
+        btn = page.locator(
+            'button[aria-label*="articipante" i], '
+            'button[aria-label*="essoas" i], '
+            'button[aria-label*="people" i]'
+        )
+        try:
+            if await btn.count() > 0:
+                label = await btn.first.get_attribute("aria-label") or ""
+                m = re.search(r"\d+", label)
+                if m:
+                    return int(m.group())
+        except Exception:
+            pass
+        return -1
+
+    async def _ended_screen_visible(self, page: Page) -> bool:
+        ended = page.locator(
+            "text=/saiu da chamada|chamada (foi )?encerrada|"
+            "reunião encerrada|left the call|call ended/i"
+        )
+        try:
+            return await ended.count() > 0 and await ended.first.is_visible()
+        except Exception:
+            return False
+
+    async def _wait_until_meeting_ends(self, page: Page) -> None:
+        alone_since: Optional[float] = None
+        while True:
+            await asyncio.sleep(self.POLL_INTERVAL)
+
+            if await self._ended_screen_visible(page):
+                logger.info("Fim detectado: tela de encerramento")
                 return
 
-            current_count = await self._get_participant_count(page)
-
-            # 2. Ninguém detectado por várias polls seguidas (DOM pode piscar)
-            if initial_count > 0 and current_count == 0:
-                zero_counter += 1
-                if zero_counter >= 3:  # 30s sem ninguém
+            count = await self._get_participant_count(page)
+            if count == 1:
+                alone_since = alone_since or time.monotonic()
+                if time.monotonic() - alone_since >= self.ALONE_TIMEOUT:
+                    logger.info("Fim detectado: sozinho há %ss", self.ALONE_TIMEOUT)
                     return
             else:
-                zero_counter = 0
+                alone_since = None
 
-            # 3. Só o bot na chamada por tempo sustentado
-            if current_count <= 1:
-                solo_counter += 1
-            else:
-                solo_counter = 0
-
-            # 4. Silêncio prolongado (apenas após tempo mínimo de gravação)
-            has_recorded_enough = (
-                session.recording_started_at
-                and (datetime.now() - session.recording_started_at).total_seconds() >= self._MIN_RECORDING_BEFORE_SILENCE
-            )
-            if has_recorded_enough and not self._has_recent_speech(session):
-                silence_counter += 1
-            else:
-                silence_counter = 0
-
-            # Saída por participação: só o bot sozinho por 60s
-            if solo_counter >= 6:  # 6 * 10s = 60s
-                return
-
-            # Saída por silêncio: ninguém falou por 5min (apenas após 2min de gravação)
-            if silence_counter >= self._SILENCE_TIMEOUT // self._POLL_INTERVAL_SECONDS:
-                return
-
-        # Timeout máximo atingido, finaliza com o áudio salvo até aqui.
-
-    def _has_recent_speech(self, session: BotSession) -> bool:
-        """Verifica se houve fala detectada nos últimos _SILENCE_TIMEOUT segundos."""
-        if not session.recording_started_at or not session.speaker_observations:
-            return False
-        now_offset = (datetime.now() - session.recording_started_at).total_seconds()
-        cutoff = now_offset - self._SILENCE_TIMEOUT
-        for obs in reversed(session.speaker_observations):
-            ts = obs.get("timestamp")
-            if ts is None:
-                continue
             try:
-                ts = float(ts)
-            except (TypeError, ValueError):
-                continue
-            if ts >= cutoff:
-                return True
-            # Observações são ordenadas por timestamp; se passou do cutoff, para
-            break
-        return False
-
-    async def _get_participant_count(self, page) -> int:
-        """Conta participantes ativos na reunião com seletor mais específico."""
-        try:
-            count = await page.evaluate("""
-                (() => {
-                    const participants = Array.from(document.querySelectorAll('[data-participant-id]'));
-                    return participants.filter(el => el.offsetParent !== null).length;
-                })()
-            """)
-            return int(count or 0)
-        except Exception:
-            return 0
-
-    async def _is_meeting_ended_screen(self, page) -> bool:
-        """Detecta telas de reunião encerrada ou retorno à tela inicial."""
-        for selector in self._SEL_MEETING_ENDED:
-            try:
-                element = await page.query_selector(selector)
-                if element:
-                    return True
+                last_audio_ms = await page.evaluate(
+                    "window.__meetCapture.getLastAudioTs()"
+                )
+                silence = time.time() - (last_audio_ms / 1000)
+                if silence >= self.SILENCE_TIMEOUT:
+                    logger.info("Fim detectado: %.0fs de silêncio", silence)
+                    return
             except Exception:
-                continue
+                logger.info("Fim detectado: contexto de captura perdido")
+                return
 
-        try:
-            return await page.evaluate("""
-                (() => {
-                    const text = document.body.innerText.toLowerCase();
-                    return text.includes('you left the video call')
-                        || text.includes('você saiu da videochamada')
-                        || text.includes('return to home screen')
-                        || text.includes('back to home screen')
-                        || text.includes('call ended');
-                })()
-            """)
-        except Exception:
-            return False
-        
+    async def _collect_and_save_audio(self, page: Page) -> None:
+        assert self.session is not None
+        b64: str = await page.evaluate("window.__meetCapture.stop()")
+        audio_path = self.audio_dir / f"{self.session.id}.webm"
+        audio_path.write_bytes(base64.b64decode(b64))
+
+        speaker_log = await page.evaluate("window.__meetCapture.getSpeakerLog()")
+        log_path = self.audio_dir / f"{self.session.id}.speakers.json"
+        log_path.write_text(
+            json.dumps(speaker_log, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+
+        self.session.audio_path = audio_path
+        self.session.speaker_log_path = log_path
+        logger.info(
+            "Áudio salvo: %s (%.1f KB) | speaker log: %s eventos",
+            audio_path, audio_path.stat().st_size / 1024, len(speaker_log),
+        )
+
+    async def _deliver(self) -> None:
+        assert self.session is not None
+        if self.on_audio_ready and self.session.audio_path:
+            await self.on_audio_ready(
+                self.session.audio_path, self.session.speaker_log_path
+            )
+
+    def _set_status(self, status: str, error: str | None = None) -> None:
+        assert self.session is not None
+        self.session.status = status
+        self.session.error = error
+        logger.info("status=%s%s", status, f" error={error}" if error else "")
+        self._persist_status()
+
+    def _persist_status(self) -> None:
+        assert self.session is not None
+        path = self.status_dir / f"bot_session_{self.session.id}.json"
+        path.write_text(
+            json.dumps(self.session.to_dict(), ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )

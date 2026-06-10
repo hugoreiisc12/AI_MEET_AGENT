@@ -13,6 +13,9 @@ from config.settings import get_settings, AppMode
 
 from domain.entities.calendar_event import CalendarEvent
 from infrastructure.llm.langchain_llm_service import LangChainLLMService
+from infrastructure.agents.etl_flow_agent import ETLFlowAgent
+from infrastructure.agents.validation_query_agent import ValidationQueryAgent
+from infrastructure.agents.pipeline_orchestrator_agent import PipelineOrchestratorAgent
 from infrastructure.json_meeting_repository import JsonMeetingRepository
 from infrastructure.sqlite_meeting_repository import SqliteMeetingRepository
 from infrastructure.mongo_setup import init_mongo
@@ -104,14 +107,26 @@ def _build_common(settings, repository) -> dict:
             from infrastructure.recorder.playwright_bot_recorder import PlaywrightBotRecorder
 
             recorder = PlaywrightBotRecorder(
-                google_email=email,
-                google_password=password,
-                profile_dir=getattr(settings, "bot_chrome_profile", "./bot_chrome_profile"),
-                bot_name=getattr(settings, "bot_name", "Meet Agent 🤖"),
-                output_dir=settings.audio_storage_path,
+                chrome_profile_dir=getattr(settings, "bot_chrome_profile", "./bot_chrome_profile"),
+                audio_dir=settings.audio_storage_path,
+                bot_name=getattr(settings, "bot_name", "Meet Agent"),
                 headless=getattr(settings, "bot_headless", False),
             )
             record_meeting = RecordMeetingUC(recorder=recorder)
+
+    etl_agent = ETLFlowAgent(
+        transcriber=transcriber,
+        repository=repository,
+    )
+    validation_agent = ValidationQueryAgent(repository=repository)
+    pipeline_agent = PipelineOrchestratorAgent(
+        repository=repository,
+        transcribe_uc=transcribe_meeting,
+        summarize_uc=summarize_meeting,
+        chat_uc=chat_with_meeting,
+        etl_agent=etl_agent,
+        validation_agent=validation_agent,
+    )
 
     return {
         "_transcriber":           transcriber,
@@ -126,6 +141,9 @@ def _build_common(settings, repository) -> dict:
         "record_meeting":         record_meeting,
         "repository":             repository,
         "pipeline_orchestrator":  pipeline_orchestrator,
+        "etl_agent":              etl_agent,
+        "validation_agent":       validation_agent,
+        "pipeline_agent":         pipeline_agent,
     }
 
 

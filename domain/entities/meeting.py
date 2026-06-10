@@ -9,11 +9,17 @@ from domain.entities.speech_block import SpeechBlock
 # Representa uma tarefa identificada em reunião
 @dataclass
 class Task:
-    """Tarefa com descrição, responsável e prazo."""
+    """Tarefa com descrição, responsável, prazo, destinatário e dados de envio."""
     description: str  # Descrição detalhada da tarefa
     responsible: str = "Não definido"  # Quem é responsável
     deadline: Optional[str] = None  # Prazo (ex: "15/02/2024")
     done: bool = False  # Se foi concluída
+    assigned_to: str = ""  # Para quem é a tarefa (destinatário)
+    recipient_email: str = ""  # E-mail do destinatário
+    created_at: str = ""  # Data/hora de criação
+    meeting_title: str = ""  # Nome da reunião de origem
+    meeting_date: str = ""  # Data da reunião de origem
+    meeting_link: str = ""  # Link da reunião/chat
 
     # Formata tarefa com status visual
     def __str__(self) -> str:

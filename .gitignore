@@ -47,3 +47,4 @@ bot_chrome_profile/
 
 # ── Distribuição ──────────────────────────────────────────────────────────
 *.zip.env
+data/collab.db

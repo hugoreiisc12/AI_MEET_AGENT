@@ -20,6 +20,12 @@ class PipelineResult:
 
 
 class MeetingPipelineOrchestrator:
+    """Orquestra o pipeline de processamento de reuniões em background.
+    
+    O status de cada reunião é derivado diretamente do estado dos dados
+    no repositório (Direct Query), sem necessidade de tracking em memória.
+    """
+
     def __init__(
         self,
         repository,
@@ -183,18 +189,6 @@ class MeetingPipelineOrchestrator:
             errors.append("SummarizeUC não configurado")
         if self._repository is None:
             errors.append("Repository não configurado")
-
-        validar_llm = False
-        if self._summarize_uc:
-            try:
-                llm = getattr(self._summarize_uc, "_llm", None)
-                if llm and hasattr(llm, "chat"):
-                    validar_llm = True
-            except Exception:
-                pass
-
-        if not validar_llm:
-            errors.append("LLM não disponível — verifique Ollama (http://localhost:11434)")
 
         return {"ok": len(errors) == 0, "errors": "; ".join(errors)}
 

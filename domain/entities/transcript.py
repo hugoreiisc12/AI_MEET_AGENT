@@ -6,11 +6,14 @@ from typing import Optional
 # Representa um trecho de transcrição com speaker, tempo e texto
 @dataclass
 class Segment:
-    """Um segmento da transcrição com speaker e tempo."""
+    """Um segmento da transcrição com speaker, tempo e métricas de qualidade."""
     start: float  # Tempo inicial em segundos
     end: float  # Tempo final em segundos
     speaker: str  # Nome do speaker (ex: "Speaker 0")
     text: str  # Texto do segmento
+    confidence: float = 1.0  # Confiança do modelo (0-1)
+    reliable: bool = True  # False se for provável alucinação
+    words: list[dict] = field(default_factory=list)  # [{word, start, probability}]
 
     # Calcula duração do segmento em segundos
     @property

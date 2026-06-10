@@ -72,6 +72,13 @@ class Settings(BaseSettings):
     notification_email: str = ""
     enable_email: bool = False
 
+    # ── SMTP (envio de e-mail) ─────────────────────────────────────────
+    smtp_host: str = "smtp.gmail.com"
+    smtp_port: int = 587
+    smtp_user: str = ""
+    smtp_password: str = ""
+    smtp_from_email: str = ""
+
     # ── Properties ───────────────────────────────────────────────────
 
     @property

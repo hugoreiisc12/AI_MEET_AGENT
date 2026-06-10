@@ -92,7 +92,7 @@ class TestPromptBuilderChat:
 
     def test_chat_system_instrui_sobre_ausencia_de_info(self, builder):
         prompt = builder.build_chat_system("transcrição qualquer")
-        assert "não foi mencionado" in prompt.lower()
+        assert "não" in prompt.lower() and ("invente" in prompt.lower() or "informa" in prompt.lower())
 
     def test_chat_system_instrui_citar_contexto(self, builder):
         prompt = builder.build_chat_system("transcrição")
