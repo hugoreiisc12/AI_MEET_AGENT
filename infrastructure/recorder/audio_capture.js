@@ -1,26 +1,10 @@
 /**
- * audio_capture.js — Captura de áudio da reunião no Google Meet
- * ---------------------------------------------------------------
- * Corrige o Bug S2: em vez de getUserMedia (microfone LOCAL da máquina
- * do bot), intercepta os elementos <audio> que o Meet cria para tocar
- * o áudio dos participantes remotos e grava ESSE stream.
- *
- * Também implementa:
- *   - S7: log temporal de atividade de voz (alimenta BlockBasedTranscriber)
- *   - Sinal de silêncio para S4 (detecção de fim de reunião)
- *
- * API exposta em window.__meetCapture:
- *   .stop()            -> Promise<string>  (base64 do .webm final)
- *   .getSpeakerLog()   -> Array<{t, rms, speakers}>
- *   .getLastAudioTs()  -> number (epoch ms do último áudio audível)
- *   .getState()        -> {recording, hookedElements, chunks}
- *
- * Injetar via page.evaluate() DEPOIS do clique em "Participar"
- * (a autoplay policy exige gesto do usuário para o AudioContext rodar).
+ Injetor de captura de aúdio para Google Meet, que se conecta a elementos de audio na pagina 
  */
 (() => {
   if (window.__meetCapture) return;
 
+/** Contexto do áudio  */
   const ctx = new AudioContext();
   const destination = ctx.createMediaStreamDestination();
   const analyser = ctx.createAnalyser();
@@ -33,7 +17,7 @@
   let lastAudioTs = Date.now();
 
   let hookedCount = 0;
-
+/** Função para conectar elementos no Chrome  */
   function hook(el) {
     if (connected.has(el)) return;
     try {
@@ -49,6 +33,7 @@
 
   document.querySelectorAll('audio').forEach(hook);
 
+  /** Observador de mutações durantes a chamada  */
   const observer = new MutationObserver((mutations) => {
     for (const m of mutations) {
       for (const node of m.addedNodes) {
@@ -68,6 +53,8 @@
   recorder.ondataavailable = (e) => { if (e.data && e.data.size > 0) chunks.push(e.data); };
   recorder.start(2000);
 
+  /** Analisador de audio para detectar quando há fala ativa 
+   */
   const tapSource = ctx.createMediaStreamSource(destination.stream);
   tapSource.connect(analyser);
   const buf = new Float32Array(analyser.fftSize);
@@ -92,6 +79,9 @@
     return [...names];
   }
 
+
+  /** Intervalo de leitura de audio para calcular o RMS e detectar se há fala ativa, registrando os palestrantes 
+   */
   const meter = setInterval(() => {
     analyser.getFloatTimeDomainData(buf);
     let sum = 0;
