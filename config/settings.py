@@ -30,6 +30,8 @@ class Settings(BaseSettings):
     # ── Storage ───────────────────────────────────────────────────────
     storage_path: str = "data/meetings"
     database_url: str = ""
+    mongo_uri: str = "mongodb://mongo:27017/meetagent"
+    mongo_db: str = "meetagent"
     audio_storage_path: str = "data/audio"
     s3_bucket: str = ""
 
@@ -69,12 +71,15 @@ class Settings(BaseSettings):
     openrouter_site_url: str = ""
     openrouter_site_name: str = "Meet Agent"
 
+    # ── faster-whisper ────────────────────────────────────────────────
+    faster_whisper_model: str = "large-v3"
+    faster_whisper_device: str = "auto"
+    faster_whisper_compute_type: str = "int8"
+
     # ── Bot de reunião ────────────────────────────────────────────────
     recorder_provider: str = "none"
-    bot_google_email: str = ""
-    bot_google_password: str = ""
     bot_chrome_profile: str = "./bot_chrome_profile"
-    bot_name: str = "Meet Agent 🤖"
+    bot_name: str = "Meet Agent"
     bot_headless: bool = False
 
     # ── Properties ───────────────────────────────────────────────────
@@ -102,6 +107,7 @@ class Settings(BaseSettings):
     model_config = {
         "env_file": ".env",
         "env_file_encoding": "utf-8",
+        "extra": "ignore",  # Ignora campos extras do .env
     }
 
 

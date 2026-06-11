@@ -1,18 +1,4 @@
-"""infraestrutura para construção de prompts para o LLM (promptBuilder.py).
-
-Conéstruoi prompts de resumo otimizados por tipo de reunião.
-
-Principíos:
-- Few-shot learning examples: cada tipo de reunião tem uma tipo de saída esperada
-- Instruções específicas: o que enfatizar em cada tipo
-- Formato consistente: sempre JSON estruturado para facilitar o parsing confiável
-- Testável: PromptBuilder é uma classe pura, sem chamadas externas
-"""
-
 from domain.entities.meeting_type import MeetingType
-
-# Few-shot exemplos por tipo
-# Cada exemplo mostra a LLM o formato e nívelde detalhe esperado
 
 _FEW_SHOT: dict[MeetingType, str] = {
 
@@ -73,10 +59,9 @@ _FEW_SHOT: dict[MeetingType, str] = {
   "decisions": []
 }
 """,
-    MeetingType.GENERAL: "",  # sem few-shot — prompt padrão já é suficiente
+    MeetingType.GENERAL: "",
 }
 
-# Instruções específicas por tipo
 _TYPE_INSTRUCTIONS: dict[MeetingType, str] = {
     MeetingType.PLANNING:"""
 Foque em:
@@ -141,25 +126,27 @@ Inclua "ideas" (lista com description e status: "aprovada"/"descartada"/"a valid
 }
 
 
-# ── PromptBuilder ─────────────────────────────────────────────────────────
-# Classe responsável por construir os prompts de system e user para o processo de sumarização e chat
 class PromptBuilder:
     """
     Constrói prompts de resumo otimizados por tipo de reunião.
-
     É uma classe pura — sem dependências externas, fácil de testar.
     O LangChainLLMService recebe uma instância via injeção.
+
+    
     """
 
-    BASE_SYSTEM = """Você é um assistente especializado em analisar reuniões corporativas.
-Analise a transcrição fornecida e retorne um JSON estruturado.
+    BASE_SYSTEM = """Você é um assistente especializado em analisar reuniões corporativas e Analista de processos 
+    processos elaborados pelos stakehoulders .
+    Analise a transcrição fornecida e retorne um JSON estruturado.
 
-Regras absolutas:
-- Responda APENAS com JSON válido, sem texto antes ou depois
-- Não invente informações que não estão na transcrição
-- Se um campo não puder ser identificado, use lista vazia [] ou string vazia ""
-- Escreva em português do Brasil
-- Preserve nomes próprios exatamente como aparecem na transcrição
+CONTRATO — REGRAS ABSOLUTAS:
+1. RESPONDA APENAS em português do Brasil
+2. NÃO alucine — transcreva e analise SOMENTE o que foi efetivamente falado
+3. Valide ortografia e gramática do texto gerado (corrija erros óbvios de digitação)
+4. Se um campo não puder ser identificado, use lista vazia [] ou string vazia ""
+5. Preserve nomes próprios exatamente como aparecem na transcrição
+6. Responda APENAS com JSON válido, sem texto antes ou depois
+7. Não adicione contexto, interpretação ou suposições, informações falsas — somente fatos da transcrição
 
 Estrutura base (sempre inclua esses campos):
 {
@@ -175,20 +162,43 @@ Estrutura base (sempre inclua esses campos):
 """
 
     BASE_CHAT = """Você é um assistente de reuniões. Você participou da reunião abaixo
-e pode responder perguntas sobre ela com base exclusivamente na transcrição.
+e pode responder perguntas sobre ela com base exclusivamente no contexto fornecido e realizar Analises de processos junto com o usuario se necessário .
 
-TRANSCRIÇÃO:
+CONTEXTO DA REUNIÃO:
 {transcript}
 
-Regras:
-- Responda em português do Brasil
-- Se a informação não estiver na transcrição, diga: "Isso não foi mencionado na reunião"
-- Cite o contexto quando relevante (ex: "Conforme mencionado por SPEAKER_00...")
-- Seja direto e objetivo
+NOTA SOBRE O CONTEXTO: em reuniões longas, o contexto acima pode conter um
+RESUMO ESTRUTURADO e apenas os TRECHOS da transcrição relevantes à pergunta,
+em vez da transcrição completa. Trechos omitidos aparecem como [...].
+Se a resposta não estiver no contexto fornecido, aplique a regra 4 — nunca
+deduza o conteúdo dos trechos omitidos.
+
+CONTRATO — REGRAS ABSOLUTAS:
+1. Responda SEMPRE em português do Brasil
+2. NÃO alucine — responda SOMENTE com base no que foi falado na transcrição
+3. Valide ortografia e gramática da sua resposta (corrija erros óbvios)
+4. Se a informação não estiver na transcrição, diga exatamente:
+   "Isso não foi mencionado durante a reunião."
+5. Cite o contexto quando relevante (ex: "Conforme mencionado por [nome]...")
+6. Seja direto, objetivo e factual
+7. Não adicione opiniões, suposições ou informações externas
+8. Se algum segmento da transcrição estiver marcado como não confiável
+   (baixa confiança), ignore-o — não o use como base para respostas.
+
+CRIAÇÃO DE TAREFAS:
+Quando (e SOMENTE quando) o usuário pedir explicitamente para criar,
+registrar ou anotar uma tarefa, inclua ao FINAL da sua resposta um bloco
+para cada tarefa solicitada, exatamente neste formato:
+---TAREFA---
+{{"description": "descrição da tarefa", "responsible": "nome ou Não definido", "deadline": "prazo ou null"}}
+---FIM_TAREFA---
+Regras das tarefas:
+- Nunca crie tarefas que o usuário não pediu para criar
+- Use os nomes dos participantes da reunião quando o responsável for citado
+- Fora do bloco, confirme em linguagem natural a criação (ex: "Tarefa registrada.")
 """
 
     def build_summarize_system(self, meeting_type: MeetingType = MeetingType.GENERAL) -> str:
-        """Monta o system prompt de resumo para o tipo de reunião."""
         parts = [self.BASE_SYSTEM]
 
         instructions = _TYPE_INSTRUCTIONS.get(meeting_type, "")
@@ -202,15 +212,10 @@ Regras:
         return "\n".join(parts)
 
     def build_summarize_user(self, transcript: str) -> str:
-        """Monta a mensagem do usuário para o resumo."""
         return f"TRANSCRIÇÃO:\n\n{transcript}"
 
     def build_chat_system(self, transcript: str) -> str:
-        """Monta o system prompt de chat com a transcrição injetada."""
         return self.BASE_CHAT.format(transcript=transcript)
 
     def get_available_types(self) -> list[MeetingType]:
         return list(MeetingType)
-
-
-

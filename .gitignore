@@ -28,6 +28,7 @@ data/meetings/
 data/audio/
 data/test_meetings/
 data/test_audio/
+bot_chrome_profile/
 
 # ── IDE ───────────────────────────────────────────────────────────────────
 .vscode/

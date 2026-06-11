@@ -1,4 +1,3 @@
-# Repositório JSON para persistência local de reuniões em modo solo
 import json
 import os
 from datetime import datetime
@@ -10,7 +9,6 @@ from repositories.meeting_repository import IMeetingRepository
 from config.settings import get_settings
 
 
-# Repositório que persiste reuniões como arquivos JSON no disco
 class JsonMeetingRepository(IMeetingRepository):
     """Persistência local em JSON — modo solo."""
 
@@ -19,12 +17,10 @@ class JsonMeetingRepository(IMeetingRepository):
         self._base = Path(path)
         self._base.mkdir(parents=True, exist_ok=True)
 
-    # Salva reunião em arquivo JSON individual
     def save(self, meeting: Meeting) -> None:
         with open(self._base / f"{meeting.id}.json", "w", encoding="utf-8") as f:
             json.dump(self._serialize(meeting), f, ensure_ascii=False, indent=2)
 
-    # Carrega reunião por ID, retorna None se não existe
     def find_by_id(self, meeting_id: str) -> Optional[Meeting]:
         p = self._base / f"{meeting_id}.json"
         if not p.exists():
@@ -32,7 +28,6 @@ class JsonMeetingRepository(IMeetingRepository):
         with open(p, encoding="utf-8") as f:
             return self._deserialize(json.load(f))
 
-    # Retorna lista de todas as reuniões ordenadas por recentes primeiro
     def list_all(self) -> list[Meeting]:
         meetings = []
         for f in sorted(self._base.glob("*.json"), reverse=True):
@@ -40,13 +35,11 @@ class JsonMeetingRepository(IMeetingRepository):
                 meetings.append(self._deserialize(json.load(fp)))
         return meetings
 
-    # Deleta reunião por ID
     def delete(self, meeting_id: str) -> None:
         p = self._base / f"{meeting_id}.json"
         if p.exists():
             os.remove(p)
 
-    # Converte Meeting entity em dicionário para serialização JSON
     def _serialize(self, m: Meeting) -> dict:
         data: dict = {
             "id": m.id,
@@ -55,6 +48,7 @@ class JsonMeetingRepository(IMeetingRepository):
             "audio_path": m.audio_path,
             "transcript_text": m.transcript_text,
             "transcript_formatted": m.transcript_formatted,
+            "transcript_raw": m.transcript_raw,
             "participants": m.participants,
             "duration_minutes": m.duration_minutes,
             "summary": None,
@@ -72,7 +66,6 @@ class JsonMeetingRepository(IMeetingRepository):
             }
         return data
 
-    # Converte dicionário JSON em Meeting entity
     def _deserialize(self, data: dict) -> Meeting:
         summary = None
         if data.get("summary"):
@@ -94,6 +87,7 @@ class JsonMeetingRepository(IMeetingRepository):
             audio_path=data.get("audio_path"),
             transcript_text=data.get("transcript_text", ""),
             transcript_formatted=data.get("transcript_formatted", ""),
+            transcript_raw=data.get("transcript_raw", ""),
             participants=data.get("participants", []),
             duration_minutes=data.get("duration_minutes", 0.0),
             summary=summary,

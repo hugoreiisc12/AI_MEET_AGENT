@@ -8,6 +8,9 @@ ENV PYTHONDONTWRITEBYTECODE=1
 
 # ── Dependências de sistema ───────────────────────────────────────────────
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    gcc \
+    portaudio19-dev \
     ffmpeg \
     libsndfile1 \
     curl \
@@ -20,6 +23,7 @@ WORKDIR /app
 # ── Dependências Python ───────────────────────────────────────────────────
 COPY requirements.txt requirements-collab.txt ./
 RUN pip install --no-cache-dir -r requirements.txt -r requirements-collab.txt
+RUN playwright install chromium
 # ── Código da aplicação ───────────────────────────────────────────────────
 COPY . .
 

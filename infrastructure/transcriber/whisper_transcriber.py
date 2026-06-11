@@ -1,35 +1,33 @@
 """
 infrastructure/transcriber/whisper_transcriber.py
 
-Implementação de ITranscriber para transcrição local e via OpenAI API.
+Implementação de ITranscriber para transcrição via OpenAI API e local (faster-whisper).
 
-- `WhisperTranscriber` usa o OpenAI Whisper API (`openai` package)
-- `WhisperLocalTranscriber` usa `openai-whisper` local
-
-Requisitos:
-    pip install openai
-    pip install openai-whisper torch
-
-Configuração no .env:
-    WHISPER_TRANSCRIBER=api
-    OPENAI_API_KEY=sk-...
-    WHISPER_MODEL=whisper-1
-    WHISPER_LANGUAGE=pt
-
-Configuração local no .env:
-    WHISPER_TRANSCRIBER=local
-    WHISPER_LOCAL_MODEL=medium
-    WHISPER_DEVICE=cpu
+- `WhisperTranscriber` usa o OpenAI Whisper API
+- `WhisperLocalTranscriber` usa faster-whisper (CTranslate2) com VAD + quality gates
 """
-
 from __future__ import annotations
 
 from pathlib import Path
 from typing import Optional
 
+import numpy as np
+
 from domain.entities.transcript import Transcript, Segment
 from interface.transcriber import ITranscriber, TranscriptionError
 from config.settings import get_settings
+from infrastructure.transcriber.audio_preprocessor import preprocess_audio
+from infrastructure.transcriber.transcript_quality_filter import filter_segments
+
+
+def pick_device_and_compute():
+    try:
+        import ctranslate2
+        if ctranslate2.get_cuda_device_count() > 0:
+            return "cuda", "float16"
+    except Exception:
+        pass
+    return "cpu", "int8"
 
 
 class WhisperTranscriber(ITranscriber):
@@ -107,7 +105,6 @@ class WhisperTranscriber(ITranscriber):
                 "segments": getattr(response, "segments", []),
             }
 
-        # Some response types may nest data in a `__dict__` or similar
         if not isinstance(payload, dict) and hasattr(response, "__dict__"):
             payload = dict(response.__dict__)
 
@@ -157,10 +154,11 @@ class WhisperTranscriber(ITranscriber):
 
 class WhisperLocalTranscriber(ITranscriber):
     """
-    Transcritor usando openai-whisper local (sem API, sem custos por uso).
-
-    O modelo é carregado na memória na primeira chamada e reutilizado
-    nas seguintes — evita reload a cada transcrição.
+    Transcritor usando faster-whisper (CTranslate2) com:
+      - Silero VAD embutido (elimina alucinação em silêncio)
+      - Segmentação inteligente (sem cortes fixos de 30s)
+      - Quality gates (confidence, reliable, word timestamps)
+      - Pré-processamento de áudio (ffmpeg denoise + loudnorm)
     """
 
     SUPPORTED_FORMATS = {".wav", ".mp3", ".mp4", ".m4a", ".webm", ".ogg", ".flac"}
@@ -170,87 +168,140 @@ class WhisperLocalTranscriber(ITranscriber):
         model_name: Optional[str] = None,
         language: Optional[str] = None,
         device: Optional[str] = None,
+        compute_type: Optional[str] = None,
     ) -> None:
         settings = get_settings()
 
-        # Precedência: parâmetro direto > settings > padrão
         self._model_name = model_name or settings.whisper_local_model
-        self._language   = language   or settings.whisper_language or None
-        self._device     = device     or settings.whisper_device
+        self._language = language or settings.whisper_language or None
         self._max_size_bytes = settings.max_audio_size_mb * 1024 * 1024
 
-        # Modelo carregado sob demanda (_lazy load)
+        if device and compute_type:
+            self._device = device
+            self._compute_type = compute_type
+        else:
+            self._device, self._compute_type = pick_device_and_compute()
+
         self._model = None
 
-    # ── API pública ────────────────────────────────────────────────────
-
     def transcribe(self, audio_path: str) -> Transcript:
-        """Transcrição simples sem identificação de speakers."""
         self._validate_file(audio_path)
-        model = self._load_model()
-
-        try:
-            result = model.transcribe(
-                audio_path,
-                language=self._language,
-                verbose=False,
-            )
-            return self._build_transcript(result, audio_path)
-
-        except Exception as e:
-            raise TranscriptionError(f"Whisper local falhou: {str(e)}") from e
+        return self._transcribe_with_pipeline(audio_path, diarization=False)
 
     def transcribe_with_diarization(self, audio_path: str) -> Transcript:
-        """
-        Transcrição com pseudo-diarização baseada em pausas.
-        Para diarização real, use WhisperWithDiarization (pyannote.audio).
-        """
         self._validate_file(audio_path)
+        return self._transcribe_with_pipeline(audio_path, diarization=True)
+
+    def _transcribe_with_pipeline(self, audio_path: str, diarization: bool) -> Transcript:
+        audio_path_obj = Path(audio_path)
+
+        try:
+            wav_path = preprocess_audio(audio_path_obj)
+        except Exception as e:
+            raise TranscriptionError(f"Pré-processamento de áudio falhou: {e}") from e
+
         model = self._load_model()
 
         try:
-            result = model.transcribe(
-                audio_path,
-                language=self._language,
-                verbose=False,
-                word_timestamps=True,  # Whisper local suporta word-level timestamps
+            segments, info = model.transcribe(
+                str(wav_path),
+                language=self._language or "pt",
+                beam_size=5,
+                vad_filter=True,
+                vad_parameters={"min_silence_duration_ms": 500},
+                condition_on_previous_text=False,
+                word_timestamps=True,
+                initial_prompt=self._build_initial_prompt(),
             )
-            transcript = self._build_transcript(result, audio_path)
-            transcript = self._apply_pseudo_diarization(transcript)
+
+            raw_segments = []
+            for seg in segments:
+                words_list = []
+                for w in (seg.words or []):
+                    words_list.append({
+                        "word": w.word,
+                        "start": w.start,
+                        "end": w.end,
+                        "probability": w.probability,
+                    })
+                raw_segments.append({
+                    "start": seg.start,
+                    "end": seg.end,
+                    "text": seg.text.strip(),
+                    "speaker": "Speaker 0",
+                    "avg_logprob": seg.avg_logprob,
+                    "no_speech_prob": seg.no_speech_prob,
+                    "compression_ratio": seg.compression_ratio,
+                    "words": words_list,
+                })
+
+            clean_segments = filter_segments(raw_segments)
+
+            if diarization:
+                clean_segments = self._apply_pseudo_diarization(clean_segments)
+
+            full_text = " ".join(s["text"] for s in clean_segments if s["reliable"])
+
+            segments_entities = [
+                Segment(
+                    start=s["start"],
+                    end=s["end"],
+                    speaker=s["speaker"],
+                    text=s["text"],
+                )
+                for s in clean_segments
+            ]
+
+            transcript = Transcript(
+                full_text=full_text,
+                segments=segments_entities,
+                language=info.language or self._language or "pt",
+                audio_path=wav_path,
+            )
+
+            if wav_path.suffix == ".clean.wav":
+                try:
+                    wav_path.unlink()
+                except Exception:
+                    pass
+
             return transcript
 
         except Exception as e:
-            raise TranscriptionError(f"Whisper local falhou: {str(e)}") from e
-
-    # ── Lazy load do modelo ────────────────────────────────────────────
+            raise TranscriptionError(f"faster-whisper falhou: {str(e)}") from e
 
     def _load_model(self):
-        """Carrega o modelo na primeira chamada e reutiliza nas seguintes."""
         if self._model is not None:
             return self._model
 
         try:
-            import whisper_local_transcriber as whisper
+            from faster_whisper import WhisperModel
         except ImportError:
             raise TranscriptionError(
-                "openai-whisper não instalado. Execute:\n"
-                "  pip install openai-whisper\n"
-                "  pip install torch  # necessário para rodar o modelo"
+                "faster-whisper não instalado. Execute:\n"
+                "  pip install faster-whisper\n"
+                "  pip install imageio-ffmpeg"
             )
 
         try:
-            self._model = whisper.load_model(
+            self._model = WhisperModel(
                 self._model_name,
                 device=self._device,
+                compute_type=self._compute_type,
             )
             return self._model
         except Exception as e:
             raise TranscriptionError(
                 f"Falha ao carregar modelo '{self._model_name}': {str(e)}\n"
-                f"Modelos válidos: tiny, base, small, medium, large, large-v2, large-v3"
+                f"Modelos: tiny, base, small, medium, large-v3"
             ) from e
 
-    # ── Helpers ───────────────────────────────────────────────────────
+    def _build_initial_prompt(self) -> str:
+        return (
+            "Reunião de trabalho em português do Brasil. "
+            "Termos frequentes: Power BI, DAX, dashboard, faturamento, "
+            "inadimplência, Streamlit, FastAPI, deploy, sprint, backlog."
+        )
 
     def _validate_file(self, audio_path: str) -> None:
         path = Path(audio_path)
@@ -272,51 +323,17 @@ class WhisperLocalTranscriber(ITranscriber):
                 f"Máximo configurado: {self._max_size_bytes // 1024 // 1024}MB."
             )
 
-    def _build_transcript(self, result: dict, audio_path: str) -> Transcript:
-        """
-        Converte o dict retornado pelo whisper.transcribe() em Transcript.
-
-        O Whisper local retorna:
-          result["text"]     — texto completo
-          result["segments"] — lista de dicts com start, end, text
-          result["language"] — idioma detectado
-        """
-        full_text = result.get("text", "").strip()
-        segments: list[Segment] = []
-
-        for seg in result.get("segments", []):
-            segments.append(
-                Segment(
-                    start=float(seg["start"]),
-                    end=float(seg["end"]),
-                    speaker="Speaker 0",  # placeholder — _apply_pseudo_diarization atribui depois
-                    text=seg["text"].strip(),
-                )
-            )
-
-        return Transcript(
-            full_text=full_text,
-            segments=segments,
-            language=result.get("language") or self._language or "pt",
-            audio_path=audio_path,
-        )
-
-    def _apply_pseudo_diarization(self, transcript: Transcript) -> Transcript:
-        """
-        Heurística: pausas > 1.5s entre segmentos → possível troca de speaker.
-        Alterna entre Speaker 0 e Speaker 1.
-        """
-        if len(transcript.segments) < 2:
-            return transcript
+    def _apply_pseudo_diarization(self, segments: list[dict]) -> list[dict]:
+        if len(segments) < 2:
+            return segments
 
         current_speaker = 0
         PAUSE_THRESHOLD = 1.5
 
-        for i in range(1, len(transcript.segments)):
-            pause = transcript.segments[i].start - transcript.segments[i - 1].end
+        for i in range(1, len(segments)):
+            pause = segments[i]["start"] - segments[i - 1]["end"]
             if pause > PAUSE_THRESHOLD:
                 current_speaker = 1 - current_speaker
+            segments[i]["speaker"] = f"Speaker {current_speaker}"
 
-            transcript.segments[i].speaker = f"Speaker {current_speaker}"
-
-        return transcript
+        return segments

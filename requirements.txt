@@ -3,8 +3,6 @@ openai>=1.30
 langchain>=0.2
 langchain-openai>=0.1
 
-
-
 # Google Calendar
 google-auth>=2.0
 google-auth-oauthlib>=1.0
@@ -23,11 +21,11 @@ requests>=2.31
 
 # Interface
 streamlit>=1.35
-playwright>=1.60.0
 
-# Áudio
-pyaudio>=0.2.14
+# Bot (Playwright)
+playwright>=1.40
 
-# Gravação ativa
-brew install ffmpeg  (macOS)
- apt install ffmpeg   (Linux)
+# Áudio / Transcrição
+faster-whisper>=1.0
+imageio-ffmpeg>=0.4
+numpy>=1.24

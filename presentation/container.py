@@ -23,39 +23,21 @@ from use_cases.fetch_meeting_context import FetchMeetingContextUC
 
 
 def _build_transcriber(settings):
-    """
-    Instancia o transcriber correto baseado nas settings.
-
-    Decisão em duas etapas:
-      1. API ou local? → WHISPER_TRANSCRIBER=api|local
-      2. Se local, com diarização real? → USE_REAL_DIARIZATION=true|false
-
-    Combinações:
-      WHISPER_TRANSCRIBER=api  + USE_REAL_DIARIZATION=false → WhisperTranscriber (API OpenAI)
-      WHISPER_TRANSCRIBER=api  + USE_REAL_DIARIZATION=true  → WhisperWithDiarization (API + pyannote)
-      WHISPER_TRANSCRIBER=local + USE_REAL_DIARIZATION=false → WhisperLocalTranscriber
-      WHISPER_TRANSCRIBER=local + USE_REAL_DIARIZATION=true  → WhisperLocalTranscriber + pyannote (futuro)
-    """
     use_local = settings.use_local_whisper
 
     if use_local:
         from infrastructure.transcriber.whisper_local_transcriber import WhisperLocalTranscriber
         return WhisperLocalTranscriber()
 
-    # API OpenAI
     if settings.use_real_diarization:
         from infrastructure.transcriber.whisper_with_diarization import WhisperWithDiarization
         return WhisperWithDiarization()
 
-    from infrastructure.transcriber.whisper_transcriber import WhisperLocalTranscriber
-    return WhisperLocalTranscriber()
+    from infrastructure.transcriber.whisper_transcriber import WhisperTranscriber
+    return WhisperTranscriber()
 
 
 def _build_common(settings, repository) -> dict:
-    """
-    Monta os componentes compartilhados entre Solo e Collab.
-    Elimina duplicação — qualquer mudança feita aqui vale para os dois modos.
-    """
     transcriber = _build_transcriber(settings)
     llm         = LangChainLLMService()
 
@@ -80,28 +62,46 @@ def _build_common(settings, repository) -> dict:
     recorder_provider = getattr(settings, "recorder_provider", "none")
 
     if recorder_provider == "playwright":
-        email    = getattr(settings, "bot_google_email", "")
-        password = getattr(settings, "bot_google_password", "")
+        from infrastructure.recorder.playwright_bot_recorder import PlaywrightBotRecorder
 
-        if not email or not password:
-            import warnings
-            warnings.warn(
-                "BOT_GOOGLE_EMAIL e BOT_GOOGLE_PASSWORD não configurados. "
-                "Bot de reunião desativado. Execute: python bot_setup.py",
-                stacklevel=2,
-            )
-        else:
-            from infrastructure.recorder.playwright_bot_recorder import PlaywrightBotRecorder
+        recorder = PlaywrightBotRecorder(
+            chrome_profile_dir=getattr(settings, "bot_chrome_profile", "./bot_chrome_profile"),
+            audio_dir=settings.audio_storage_path,
+            bot_name=getattr(settings, "bot_name", "Meet Agent"),
+            headless=getattr(settings, "bot_headless", False),
+            on_audio_ready=_make_delivery_callback(settings),
+        )
+        record_meeting = RecordMeetingUC(recorder=recorder)
 
-            recorder = PlaywrightBotRecorder(
-                google_email=email,
-                google_password=password,
-                profile_dir=getattr(settings, "bot_chrome_profile", "./bot_chrome_profile"),
-                bot_name=getattr(settings, "bot_name", "Meet Agent 🤖"),
-                output_dir=settings.audio_storage_path,
-                headless=getattr(settings, "bot_headless", False),
-            )
-            record_meeting = RecordMeetingUC(recorder=recorder)
+    from agents.etl_agent import ETLAgent
+    from agents.collection_agent import CollectionAgent
+    from agents.orchestrator_agent import OrchestratorAgent
+    from agents.memory_manager import MemoryManager
+
+    etl_agent = ETLAgent(
+        transcribe_uc=transcribe_meeting,
+        llm=llm,
+        repository=repository,
+    )
+
+    memory_manager = MemoryManager(
+        repository=repository,
+        short_term_max=5,
+        medium_term_threshold=3,
+        long_term_threshold=10,
+    )
+
+    collection_agent = CollectionAgent(
+        repository=repository,
+        memory_manager=memory_manager,
+    )
+
+    orchestrator = OrchestratorAgent(
+        recorder=recorder if record_meeting else None,
+        etl_agent=etl_agent,
+        collection_agent=collection_agent,
+        repository=repository,
+    ) if record_meeting else None
 
     return {
         "_transcriber":          transcriber,
@@ -114,7 +114,27 @@ def _build_common(settings, repository) -> dict:
         "fetch_meeting_context": fetch_meeting_context,
         "record_meeting":        record_meeting,
         "repository":            repository,
+        "etl_agent":             etl_agent,
+        "collection_agent":      collection_agent,
+        "memory_manager":        memory_manager,
+        "orchestrator":          orchestrator,
     }
+
+
+def _make_delivery_callback(settings):
+    if getattr(settings, "app_mode", "solo") != "collab":
+        return None
+
+    async def deliver(audio_path, speaker_log_path):
+        from worker.tasks import process_meeting_task
+        meeting_id = audio_path.stem
+        process_meeting_task.delay(
+            meeting_id=meeting_id,
+            audio_path=audio_path.as_posix(),
+            title="",
+        )
+
+    return deliver
 
 
 class SoloContainer:
@@ -145,23 +165,27 @@ class CollabContainer:
         import warnings
         settings = get_settings()
 
-        if not settings.database_url:
+        if not settings.mongo_uri:
             raise RuntimeError(
-                "APP_MODE=collab requer DATABASE_URL no .env.\n"
-                "Exemplo: DATABASE_URL=postgresql+asyncpg://user:pass@localhost/meetagent"
+                "APP_MODE=collab requer MONGO_URI no .env.\n"
+                "Exemplo: MONGO_URI=mongodb://mongo:27017/meetagent"
             )
 
-        warnings.warn(
-            "CollabContainer usando JsonMeetingRepository (storage local). "
-            "Implemente PostgresMeetingRepository para produção real.",
-            stacklevel=2,
+        from infrastructure.storage_mongodb import MongoDBMeetingRepository
+        repository = MongoDBMeetingRepository(
+            mongo_uri=settings.mongo_uri,
+            db_name=settings.mongo_db,
         )
-        repository = JsonMeetingRepository(settings.storage_path)
         self.__dict__.update(_build_common(settings, repository))
+
+        try:
+            from worker.tasks import start_background_worker
+            start_background_worker()
+        except Exception as e:
+            warnings.warn(f"Não foi possível iniciar worker background: {e}", stacklevel=2)
 
 
 def build_container() -> SoloContainer | CollabContainer:
-    """Factory sem cache — use em testes para obter container sempre fresco."""
     settings = get_settings()
     if settings.app_mode == AppMode.COLLAB:
         return CollabContainer()
@@ -170,10 +194,4 @@ def build_container() -> SoloContainer | CollabContainer:
 
 @lru_cache(maxsize=1)
 def get_container() -> SoloContainer | CollabContainer:
-    """Singleton por processo.
-
-    ATENÇÃO: se fizer get_settings.cache_clear() em testes,
-    chame também get_container.cache_clear().
-    Em testes prefira build_container() diretamente.
-    """
     return build_container()

@@ -27,13 +27,13 @@ class ProjectValidator:
         print("🔍 Checking Python Syntax...\n")
 
         for py_file in sorted(self.root.rglob("*.py")):
-            if any(skip in str(py_file) for skip in ["venv", ".pytest_cache", "data/"]):
+            if any(skip in str(py_file) for skip in ["venv", ".venv", ".pytest_cache", "data/"]):
                 continue
 
             self.stats["total_files"] += 1
 
             try:
-                with open(py_file) as f:
+                with open(py_file, encoding="utf-8") as f:
                     ast.parse(f.read())
                 self.stats["valid_files"] += 1
             except SyntaxError as e:
@@ -121,6 +121,8 @@ class ProjectValidator:
             "infrastructure/llm/prompt_builder.py",
             "infrastructure/llm/sentiment_analyzer.py",
             "infrastructure/recorder/playwright_bot_recorder.py",
+            "infrastructure/recorder/run_bot.py",
+            "infrastructure/recorder/audio_capture.js",
             "infrastructure/exporters/markdown_exporter.py",
             "infrastructure/calendar/google_calendar_service.py",
 

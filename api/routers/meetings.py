@@ -179,7 +179,6 @@ def get_bot_status(session_id: str):
     return {
         "session_id": status.session_id,
         "status": status.status,
-        "duration_minutes": round(status.duration_seconds / 60, 1),
         "ready": status.status == "done",
     }
 
@@ -248,7 +247,7 @@ def _process_sync(meeting_id: str, audio_path: str, title: str) -> None:
     )
 
     if s_result.success:
-        # FIX: salvar reunião no repositório — sem isso, GET /status nunca a encontra
+        meeting.summary = s_result.summary
         container.repository.save(meeting)
 
     _set_status(

@@ -16,11 +16,15 @@ CHAT_SYSTEM_PROMPT = """Você é um assistente de reuniões. Você participou da
 TRANSCRIÇÃO DA REUNIÃO:
 {transcript}
 
-Regras:
-- Responda sempre em português Brasil
-- Se a informação não tiver na transcrição, responda "Isso não foi mencionado na reunião"
-- Seja direto e objetivo
-- Cite a fonte quando possível (ex: "Conforme mencionado por Speaker 0...")"""
+CONTRATO — REGRAS ABSOLUTAS:
+1. Responda SEMPRE em português do Brasil
+2. NÃO alucine — responda SOMENTE com base no que foi falado na transcrição
+3. Valide ortografia e gramática da sua resposta (corrija erros óbvios)
+4. Se a informação não estiver na transcrição, diga exatamente:
+   "Isso não foi mencionado durante a reunião."
+5. Cite o contexto quando relevante (ex: "Conforme mencionado por [nome]...")
+6. Seja direto, objetivo e factual
+7. Não adicione opiniões, suposições ou informações externas"""
 
 
 class LangChainLLMService(ILLMService):
@@ -32,20 +36,17 @@ class LangChainLLMService(ILLMService):
         self._current_transcript: str = ""
 
         if llm:
-            # Injeção direta — usado em testes
             self._llm = llm
 
         elif getattr(settings, "llm_provider", "openai") == "ollama":
-            # LLM local via Ollama — sem custo, sem internet
             self._llm = ChatOpenAI(
                 model=getattr(settings, "ollama_model", "nemotron-mini"),
-                api_key=SecretStr("ollama"),  # Ollama não valida a key
+                api_key=SecretStr("ollama"),
                 base_url=getattr(settings, "ollama_base_url", "http://localhost:11434/v1"),
                 temperature=0.2,
             )
 
         elif getattr(settings, "llm_provider", "openai") == "openrouter":
-            # OpenRouter — acesso a múltiplos modelos com uma chave
             self._llm = ChatOpenAI(
                 model=getattr(settings, "openrouter_model", "openai/gpt-4o"),
                 api_key=SecretStr(getattr(settings, "openrouter_api_key", "")),
@@ -58,12 +59,47 @@ class LangChainLLMService(ILLMService):
             )
 
         else:
-            # OpenAI direto — padrão
-            self._llm = ChatOpenAI(
-                model=settings.openai_model,
-                api_key=SecretStr(settings.openai_api_key),
-                temperature=0.2,
-            )
+            if not settings.openai_api_key or settings.openai_api_key.strip() == "":
+                import warnings
+                warnings.warn(
+                    "OPENAI_API_KEY não configurada. Tentando usar Ollama local...",
+                    stacklevel=2,
+                )
+                self._llm = ChatOpenAI(
+                    model=getattr(settings, "ollama_model", "nemotron-mini"),
+                    api_key=SecretStr("ollama"),
+                    base_url=getattr(settings, "ollama_base_url", "http://localhost:11434/v1"),
+                    temperature=0.2,
+                )
+            else:
+                self._llm = ChatOpenAI(
+                    model=settings.openai_model,
+                    api_key=SecretStr(settings.openai_api_key),
+                    temperature=0.2,
+                )
+
+    def _call_ollama_summarize(self, system_prompt: str, user_message: str) -> str:
+        """Chama Ollama via API nativa (com format=json) para sumarização."""
+        import requests as _requests
+        settings = get_settings()
+        base = getattr(settings, "ollama_base_url", "http://localhost:11434/v1")
+        base = base.replace("/v1", "").replace("/v1/", "")
+        resp = _requests.post(
+            f"{base}/api/chat",
+            json={
+                "model": getattr(settings, "ollama_model", "nemotron-mini"),
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_message},
+                ],
+                "format": "json",
+                "stream": False,
+                "options": {"num_predict": 2000, "temperature": 0.1},
+            },
+            timeout=120,
+        )
+        resp.raise_for_status()
+        return resp.json()["message"]["content"]
 
     def summarize(self, transcript: str, meeting_type: MeetingType = MeetingType.GENERAL) -> Summary:
         """Analisa transcrição e retorna Summary com tópicos, tarefas, decisões."""
@@ -71,12 +107,20 @@ class LangChainLLMService(ILLMService):
             system_prompt = self._prompt_builder.build_summarize_system(meeting_type)
             user_message  = self._prompt_builder.build_summarize_user(transcript)
 
-            messages: list[BaseMessage] = [
-                SystemMessage(content=system_prompt),
-                HumanMessage(content=user_message),
-            ]
-            response = self._llm.invoke(messages)
-            content  = response.content if isinstance(response.content, str) else str(response.content)
+            from config.settings import get_settings
+            _settings = get_settings()
+            provider = getattr(_settings, "llm_provider", "openai")
+
+            if provider == "ollama":
+                content = self._call_ollama_summarize(system_prompt, user_message)
+            else:
+                messages: list[BaseMessage] = [
+                    SystemMessage(content=system_prompt),
+                    HumanMessage(content=user_message),
+                ]
+                response = self._llm.invoke(messages)
+                content  = response.content if isinstance(response.content, str) else str(response.content)
+
             return self._parse_summary(content)
 
         except LLMServiceError:

@@ -3,17 +3,29 @@ worker/tasks.py — Tasks Celery para processamento assíncrono.
 
 Ativado apenas em modo colaborativo (APP_MODE=collab).
 Cada áudio enviado vira uma task independente processada por um worker.
+
+WINDOWS SUPPORT: Se Celery não funcionar (ex: no Windows), usa threading em memória.
 """
 
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 import uuid
+import threading
+import queue
 from datetime import datetime
+from typing import Dict, Any
 
 from config.settings import get_settings
 
 settings = get_settings()
+
+# Store de status em memória (fallback para Windows)
+_task_status: Dict[str, str] = {}
+_task_status_lock = threading.Lock()
+_task_queue: queue.Queue = queue.Queue()
+_worker_started = False  # Flag para evitar múltiplas inicializações
+_worker_lock = threading.Lock()
 
 try:
     from celery import Celery
@@ -29,8 +41,10 @@ try:
         timezone="America/Sao_Paulo",
         task_track_started=True,
     )
+    HAS_CELERY = True
 except ImportError:
     celery_app = None  # modo solo — Celery não instalado
+    HAS_CELERY = False
 
 
 def _set_status(meeting_id: str, status_value: str) -> None:
@@ -38,13 +52,40 @@ def _set_status(meeting_id: str, status_value: str) -> None:
     Atualiza status no Redis diretamente — sem importar o router da API.
     FIX: o worker não pode importar _set_status de api/routers/meetings.py
     pois isso cria dependência circular (worker → api → container → worker).
+    
+    WINDOWS SUPPORT: Se Redis não funcionar, usa memória local.
     """
-    try:
-        import redis as redis_lib
-        r = redis_lib.from_url(settings.redis_url)
-        r.set(f"status:{meeting_id}", status_value, ex=86400)
-    except Exception:
-        pass  # em modo solo sem Redis, ignora silenciosamente
+    if HAS_CELERY:
+        # Modo collab com Celery — usa Redis
+        try:
+            import redis as redis_lib
+            r = redis_lib.from_url(settings.redis_url)
+            r.set(f"status:{meeting_id}", status_value, ex=86400)
+        except Exception:
+            # Fallback: atualiza também em memória
+            with _task_status_lock:
+                _task_status[meeting_id] = status_value
+    else:
+        # Modo Windows: store em memória
+        with _task_status_lock:
+            _task_status[meeting_id] = status_value
+
+
+def get_task_status(meeting_id: str) -> str:
+    """Obtém status da task (do Redis ou da memória)."""
+    if HAS_CELERY:
+        try:
+            import redis as redis_lib
+            r = redis_lib.from_url(settings.redis_url)
+            status = r.get(f"status:{meeting_id}")
+            if status:
+                return status.decode() if isinstance(status, bytes) else status
+        except Exception:
+            pass
+    
+    # Fallback: consulta memória
+    with _task_status_lock:
+        return _task_status.get(meeting_id, "unknown")
 
 
 def process_meeting_task_fn(meeting_id: str, audio_path: str, title: str) -> dict:
@@ -110,5 +151,51 @@ if celery_app:
         except Exception as exc:
             raise self.retry(exc=exc)
 else:
-    def process_meeting_task(*args, **kwargs):
-        raise RuntimeError("Celery não instalado. Use APP_MODE=solo.")
+    # FALLBACK WINDOWS: sem Celery, usa threading em memória
+    def process_meeting_task(meeting_id: str, audio_path: str, title: str):
+        """
+        Fallback para Windows/desenvolvimento local.
+        Enfileira a task e processa em thread separada.
+        """
+        _task_queue.put((meeting_id, audio_path, title))
+        return {"status": "queued", "meeting_id": meeting_id}
+
+    process_meeting_task.delay = process_meeting_task  # compatibilidade com .delay()
+
+
+def _worker_loop():
+    """
+    Loop do worker que processa tasks da fila em memória.
+    Executa em thread separada (background).
+    Apenas usado quando Celery não está disponível (Windows).
+    """
+    while True:
+        try:
+            meeting_id, audio_path, title = _task_queue.get(timeout=1)
+            result = process_meeting_task_fn(meeting_id, audio_path, title)
+            print(f"✅ Task {meeting_id} concluída: {result['status']}")
+        except queue.Empty:
+            continue
+        except Exception as e:
+            print(f"❌ Erro ao processar task: {e}")
+
+
+def start_background_worker() -> None:
+    """
+    Inicia worker em background thread (apenas para Windows/desenvolvimento).
+    Chamado uma única vez na inicialização.
+    Protegido contra múltiplas inicializações com flag thread-safe.
+    """
+    global _worker_started
+    
+    if HAS_CELERY:
+        return  # Não precisa do fallback com Celery
+    
+    with _worker_lock:
+        if _worker_started:
+            return  # Já foi iniciado
+        
+        _worker_started = True
+        worker_thread = threading.Thread(target=_worker_loop, daemon=True)
+        worker_thread.start()
+        print("🔧 Worker em background (modo Windows) iniciado com sucesso")

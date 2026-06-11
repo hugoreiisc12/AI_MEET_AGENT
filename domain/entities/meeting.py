@@ -1,57 +1,45 @@
-# Entidades de domínio que representam reunião, tarefas, decisões e resumos
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Optional
 
 
-# Representa uma tarefa identificada em reunião
 @dataclass
 class Task:
-    """Tarefa com descrição, responsável e prazo."""
-    description: str  # Descrição detalhada da tarefa
-    responsible: str = "Não definido"  # Quem é responsável
-    deadline: Optional[str] = None  # Prazo (ex: "15/02/2024")
-    done: bool = False  # Se foi concluída
+    description: str
+    responsible: str = "Não definido"
+    deadline: Optional[str] = None
+    done: bool = False
 
-    # Formata tarefa com status visual
     def __str__(self) -> str:
         status = "✅" if self.done else "⬜"
         return f"{status} {self.description} — {self.responsible} ({self.deadline})"
 
 
-# Representa uma decisão tomada durante reunião
 @dataclass
 class Decision:
-    """Decisão com descrição e contexto."""
-    description: str  # Descrição da decisão
-    context: str = ""  # Contexto e motivo
+    description: str
+    context: str = ""
 
-    # Formata decisão para exibição
     def __str__(self) -> str:
         return f"• {self.description}"
 
 
-# Representa resumo estruturado de reunião
 @dataclass
 class Summary:
-    """Resumo gerado por LLM com tópicos, tarefas e decisões."""
-    overview: str = ""  # Parágrafo resumindo reunião
-    topics: list[str] = field(default_factory=list)  # Tópicos discutidos
-    tasks: list[Task] = field(default_factory=list)  # Tarefas identificadas
-    decisions: list[Decision] = field(default_factory=list)  # Decisões tomadas
-    created_at: datetime = field(default_factory=datetime.now)  # Quando foi criado
+    overview: str = ""
+    topics: list[str] = field(default_factory=list)
+    tasks: list[Task] = field(default_factory=list)
+    decisions: list[Decision] = field(default_factory=list)
+    created_at: datetime = field(default_factory=datetime.now)
 
-    # Verifica se tem tarefas
     @property
     def has_tasks(self) -> bool:
         return len(self.tasks) > 0
 
-    # Retorna apenas tarefas não concluídas
     @property
     def pending_tasks(self) -> list[Task]:
         return [t for t in self.tasks if not t.done]
 
-    # Formata resumo com estrutura visual
     @property
     def formatted(self) -> str:
         lines = []
@@ -78,26 +66,23 @@ class Summary:
         return "\n".join(lines)
 
 
-# Entidade central que representa uma reunião completa
 @dataclass
 class Meeting:
-    """Reunião com transcrição, resumo e metadados."""
-    id: str  # ID único da reunião
-    title: str  # Título da reunião
-    started_at: datetime = field(default_factory=datetime.now)  # Quando iniciou
-    audio_path: Optional[str] = None  # Caminho do arquivo de áudio
-    transcript_text: str = ""  # Transcrição em texto simples
-    transcript_formatted: str = ""  # Transcrição formatada com speakers
-    summary: Optional[Summary] = None  # Resumo gerado por LLM
-    participants: list[str] = field(default_factory=list)  # Participantes
-    duration_minutes: float = 0.0  # Duração em minutos
+    id: str
+    title: str
+    started_at: datetime = field(default_factory=datetime.now)
+    audio_path: Optional[str] = None
+    transcript_text: str = ""
+    transcript_formatted: str = ""
+    summary: Optional[Summary] = None
+    participants: list[str] = field(default_factory=list)
+    duration_minutes: float = 0.0
+    transcript_raw: str = ""
 
-    # Verifica se foi transcrita
     @property
     def is_transcribed(self) -> bool:
         return bool(self.transcript_text)
 
-    # Verifica se foi sumarizada
     @property
     def is_summarized(self) -> bool:
         return self.summary is not None

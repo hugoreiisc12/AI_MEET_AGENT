@@ -1,33 +1,29 @@
-# Use case: responde perguntas sobre reunião com contexto de transcrição
 from dataclasses import dataclass, field
-from domain.entities.meeting import Meeting
+from domain.entities.meeting import Meeting, Task
 from interface.llm_services import ILLMService, LLMServiceError
 
 
-# Dados de entrada para chat com reunião
 @dataclass
 class ChatWithMeetingInput:
-    meeting: Meeting  # Reunião para contexto
-    question: str  # Pergunta do usuário
-    history: list[dict] = field(default_factory=list)  # Histórico: [{"role": "user"|"assistant", "content": str}]
+    meeting: Meeting
+    question: str
+    history: list[dict] = field(default_factory=list)
 
 
-# Dados de saída do chat
 @dataclass
 class ChatWithMeetingOutput:
-    answer: str  # Resposta gerada pela LLM
-    success: bool  # Status da operação
+    answer: str
+    success: bool
     error_message: str = ""
+    extracted_tasks: list[Task] = field(default_factory=list)
 
 
-# Use case que recebe LLM service via injeção de dependência
 class ChatWithMeetingUC:
     """Orquestra conversa sobre reunião com contexto de transcrição."""
 
     def __init__(self, llm_service: ILLMService) -> None:
         self._llm = llm_service
 
-    # Executa chat: valida transcrição, passa contexto e histórico para LLM
     def execute(self, input_data: ChatWithMeetingInput) -> ChatWithMeetingOutput:
         meeting = input_data.meeting
 

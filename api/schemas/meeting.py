@@ -10,6 +10,8 @@ class ProcessingStatus(str, Enum):
     SUMMARIZING  = "summarizing"
     DONE         = "done"
     ERROR        = "error"
+
+
 class TaskSchema(BaseModel):
     description: str
     responsible: str
