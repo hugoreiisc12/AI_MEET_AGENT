@@ -92,7 +92,7 @@ class TestPromptBuilderChat:
 
     def test_chat_system_instrui_sobre_ausencia_de_info(self, builder):
         prompt = builder.build_chat_system("transcrição qualquer")
-        assert "não foi mencionado" in prompt.lower()
+        assert "não" in prompt.lower() and ("invente" in prompt.lower() or "informa" in prompt.lower())
 
     def test_chat_system_instrui_citar_contexto(self, builder):
         prompt = builder.build_chat_system("transcrição")
@@ -164,3 +164,26 @@ class TestIntegracaoLLMServiceComTipo:
         planning_prompt = mock_llm.invoke.call_args[0][0][0].content
 
         assert general_prompt != planning_prompt
+
+    def test_summarize_recovers_json_com_chave_final_ausente(self):
+        from unittest.mock import MagicMock
+        from infrastructure.llm.langchain_llm_service import LangChainLLMService
+
+        incomplete_json = '''{
+  "overview": "A reunião é sobre um teste",
+  "topics": ["teste"],
+  "tasks": [
+    {"description": "Realizar o teste", "responsible": "Boa, tite", "deadline": "Encerrando a reunião."}
+  ],
+  "decisions": []
+'''
+
+        mock_llm = MagicMock()
+        mock_llm.invoke.return_value.content = incomplete_json
+
+        service = LangChainLLMService(llm=mock_llm)
+        summary = service.summarize("transcrição", MeetingType.GENERAL)
+
+        assert summary.overview == "A reunião é sobre um teste"
+        assert len(summary.topics) == 1
+        assert summary.tasks[0].description == "Realizar o teste"

@@ -9,6 +9,7 @@ from use_cases.chat_with_meeting import ChatWithMeetingUC, ChatWithMeetingInput
 from domain.entities.transcript import Transcript, Segment
 from infrastructure.json_meeting_repository import JsonMeetingRepository
 from datetime import datetime
+from pathlib import Path
 import tempfile
 import json
 
@@ -46,7 +47,7 @@ class MockLLMService:
             ]
         )
 
-    def chat(self, question: str, context: str, history: list) -> str:
+    def chat(self, question: str, context: str, history: list, **kwargs) -> str:
         question_lower = question.lower()
 
         if "quem" in question_lower or "responsável" in question_lower:
@@ -70,8 +71,8 @@ class TestEndToEndWorkflow:
         transcribe_uc = TranscribeMeetingUC(transcriber)
 
         t_result = transcribe_uc.execute(TranscribeMeetingInput(
-            audio_path="/tmp/test.wav",
-            with_diarization=True
+            audio_path=str(Path(tempfile.gettempdir()) / "test.wav"),
+            with_diarization=True,
         ))
 
         assert t_result.success
@@ -268,13 +269,13 @@ class TestErrorRecovery:
 
     def test_partial_processing_recovery(self):
         """Testa se continua mesmo se partes falharem"""
-        from infrastructure.transcriber.whisper_transcriber import WhisperTranscriber
+        from infrastructure.transcriber.whisper_local_transcriber import WhisperLocalTranscriber
 
-        transcriber = WhisperTranscriber()
+        transcriber = WhisperLocalTranscriber()
         uc = TranscribeMeetingUC(transcriber)
 
         result = uc.execute(TranscribeMeetingInput(
-            audio_path="/tmp/nonexistent_file_12345_xyz.wav"
+            audio_path=str(Path(tempfile.gettempdir()) / "nonexistent_file_12345_xyz.wav"),
         ))
 
         assert isinstance(result.success, bool)

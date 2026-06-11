@@ -43,5 +43,9 @@ bot_chrome_profile/
 *.log
 celery*.log
 
+# ── Bot Chrome Profile ────────────────────────────────────────────────────
+bot_chrome_profile/
+
 # ── Distribuição ──────────────────────────────────────────────────────────
 *.zip.env
+data/collab.db

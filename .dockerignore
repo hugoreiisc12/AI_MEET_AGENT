@@ -29,6 +29,9 @@ data/
 # Chrome extension (não vai para o servidor)
 chrome_extension/
 
+# Bot Chrome Profile (não vai para o servidor)
+bot_chrome_profile/
+
 # Versionamento
 .git/
 .gitignore

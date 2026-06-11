@@ -1,5 +1,7 @@
 # Testes de componentes individuais
 import pytest
+import tempfile
+from pathlib import Path
 from domain.entities.meeting import Meeting, Summary, Task, Decision
 from domain.entities.transcript import Transcript, Segment
 from datetime import datetime
@@ -14,7 +16,7 @@ class TestMeetingEntity:
             id="123",
             title="Sprint Planning",
             started_at=datetime.now(),
-            audio_path="/tmp/audio.wav"
+            audio_path=str(Path(tempfile.gettempdir()) / "audio.wav"),
         )
         assert meeting.id == "123"
         assert meeting.title == "Sprint Planning"
