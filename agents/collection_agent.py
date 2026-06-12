@@ -18,6 +18,7 @@ from typing import Callable, Optional
 from domain.entities.meeting import Meeting
 from repositories.meeting_repository import IMeetingRepository
 from agents.memory_manager import MemoryManager
+from infrastructure.agents.db_admin_agent import DbAdminAgent
 
 
 class CollectionAgent:
@@ -28,10 +29,12 @@ class CollectionAgent:
         repository: IMeetingRepository,
         memory_manager: Optional[MemoryManager] = None,
         on_new_meeting: Optional[Callable[[Meeting], None]] = None,
+        db_admin: Optional[DbAdminAgent] = None,
     ) -> None:
         self._repository = repository
         self._memory = memory_manager
         self._on_new_meeting = on_new_meeting
+        self._db_admin = db_admin or DbAdminAgent()
         self._known_ids: set[str] = set()
         self._queue: list[Meeting] = []
         self._queue_lock = threading.Lock()
@@ -91,6 +94,27 @@ class CollectionAgent:
 
     def get_new_meetings(self) -> list[Meeting]:
         return self.poll() > 0
+
+    def consultar_por_id(self, original_id: str) -> Optional[dict]:
+        """Retorna o documento mesclado (transcrição + legenda) de uma reunião.
+
+        Consulta arquivos_mesclados — sem duplicatas, resultado único por reunião.
+        Dispara o JOIN automaticamente se ainda não foi executado.
+        """
+        from pymongo import MongoClient
+        import os
+        uri = os.environ.get("MONGO_URI", "mongodb://localhost:27017/meetagent")
+        db_name = os.environ.get("MONGO_DB", "meetagent")
+        client = MongoClient(uri, serverSelectionTimeoutMS=5000)
+        try:
+            db = client[db_name]
+            doc = db.arquivos_mesclados.find_one({"original_id": original_id})
+            if doc:
+                return doc
+            # Ainda não mesclado — tenta executar o JOIN agora
+            return self._db_admin.executar_e_validar(original_id)
+        finally:
+            client.close()
 
     def _poll_loop(self, interval: float) -> None:
         while self._running:

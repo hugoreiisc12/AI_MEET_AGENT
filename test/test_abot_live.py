@@ -29,6 +29,8 @@ import shutil
 import subprocess 
 import time 
 from pathlib import Path
+from dotenv import load_dotenv
+load_dotenv()
 
 import pytest 
 
@@ -89,7 +91,7 @@ class FakePage:
     - eval_map: respostas para page.evaluate por trecho do script
     """
 
-    def __init__(self, url: str = "https://meet.google.com/abc",
+    def __init__(self, url: str = "https://meet.google.com/zqy-foqk-rnm",
                  login_btn_visible: bool = False,
                  ended_visible: bool = False,
                  participant_label: str | None = None,
@@ -130,7 +132,7 @@ def recorder(tmp_path) -> PlaywrightBotRecorder:
         audio_dir=tmp_path / "audio",
         headless=True,
     )
-    r.session = BotSession(meeting_url="https://meet.google.com/abc")
+    r.session = BotSession(meeting_url="https://meet.google.com/zqy-foqk-rnm")
     return r
  
  
@@ -301,7 +303,7 @@ class TestMaquinaDeStatus:
         path = recorder.status_dir / f"bot_session_{recorder.session.id}.json"
         data = json.loads(path.read_text(encoding="utf-8"))
         assert data["status"] == "recording"
-        assert data["meeting_url"] == "https://meet.google.com/abc"
+        assert data["meeting_url"] == "https://meet.google.com/zqy-foqk-rnm"
         assert data["error"] is None
  
     def test_falha_registra_erro_no_json(self, recorder):
@@ -420,7 +422,9 @@ class TestBotVivo:
         """Entra na sala, grava e sai sozinho. Para validar ÁUDIO real,
         entre na mesma sala com uma segunda conta e fale algo."""
         monkeypatch.setattr(PlaywrightBotRecorder, "ALONE_TIMEOUT", 30)
-        profile = Path(os.environ.get("BOT_PROFILE_DIR", "./bot_profile"))
+        monkeypatch.setattr(PlaywrightBotRecorder, "JOIN_TIMEOUT", 30_000)
+        profile = Path(os.environ.get("BOT_PROFILE_DIR",
+                         os.environ.get("BOT_CHROME_PROFILE", "./bot_chrome_profile")))
         assert profile.exists(), (
             f"Perfil '{profile}' não existe — rode antes: "
             "python -m infrastructure.recorder.bot_setup"
