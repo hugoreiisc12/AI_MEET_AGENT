@@ -46,14 +46,15 @@
             "type": "string"
           },
           "status": {
-            "description": "ready libera o envio do bot. creating: credenciando. waiting_login: alguém precisa concluir o login na tela do bot (vnc_url). unknown/not_configured/error: credenciar.",
+            "description": "ready libera o envio do bot. creating: credenciando. waiting_login: alguém precisa concluir o login na tela do bot (vnc_url). unknown/not_configured/error: credenciar. offline: conta pronta, mas nenhum worker do bot rodando (message diz como subir).",
             "enum": [
               "unknown",
               "creating",
               "waiting_login",
               "ready",
               "not_configured",
-              "error"
+              "error",
+              "offline"
             ],
             "title": "Status",
             "type": "string"
@@ -332,13 +333,18 @@
             "type": "boolean"
           },
           "login_enabled": {
-            "description": "Falso em APP_MODE=solo: não há usuários",
+            "description": "Sempre verdadeiro: há login nos dois modos (JSON no solo, MongoDB no collab)",
             "title": "Login Enabled",
             "type": "boolean"
           },
           "max_upload_mb": {
             "title": "Max Upload Mb",
             "type": "integer"
+          },
+          "mode": {
+            "description": "solo ou collab: modo em que esta API está rodando",
+            "title": "Mode",
+            "type": "string"
           },
           "platforms": {
             "items": {
@@ -353,6 +359,7 @@
           }
         },
         "required": [
+          "mode",
           "login_enabled",
           "registration_open",
           "email_enabled",
@@ -362,6 +369,27 @@
           "platforms"
         ],
         "title": "ConfigResponse",
+        "type": "object"
+      },
+      "ContributionSchema": {
+        "properties": {
+          "points": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Points",
+            "type": "array"
+          },
+          "speaker": {
+            "title": "Speaker",
+            "type": "string"
+          }
+        },
+        "required": [
+          "speaker",
+          "points"
+        ],
+        "title": "ContributionSchema",
         "type": "object"
       },
       "CountResponse": {
@@ -457,6 +485,55 @@
           }
         },
         "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "LiveSegment": {
+        "properties": {
+          "end": {
+            "title": "End",
+            "type": "number"
+          },
+          "start": {
+            "title": "Start",
+            "type": "number"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "start",
+          "end",
+          "text"
+        ],
+        "title": "LiveSegment",
+        "type": "object"
+      },
+      "LiveTranscriptResponse": {
+        "properties": {
+          "meeting_id": {
+            "title": "Meeting Id",
+            "type": "string"
+          },
+          "segments": {
+            "description": "Trechos já reconhecidos; só durante transcribing",
+            "items": {
+              "$ref": "#/components/schemas/LiveSegment"
+            },
+            "title": "Segments",
+            "type": "array"
+          },
+          "status": {
+            "$ref": "#/components/schemas/MeetingStatus"
+          }
+        },
+        "required": [
+          "meeting_id",
+          "status",
+          "segments"
+        ],
+        "title": "LiveTranscriptResponse",
         "type": "object"
       },
       "LoginRequest": {
@@ -746,6 +823,45 @@
         "title": "MemoryNote",
         "type": "object"
       },
+      "ModeRequest": {
+        "properties": {
+          "mode": {
+            "enum": [
+              "solo",
+              "collab"
+            ],
+            "title": "Mode",
+            "type": "string"
+          }
+        },
+        "required": [
+          "mode"
+        ],
+        "title": "ModeRequest",
+        "type": "object"
+      },
+      "ModeResponse": {
+        "properties": {
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "mode": {
+            "enum": [
+              "solo",
+              "collab"
+            ],
+            "title": "Mode",
+            "type": "string"
+          }
+        },
+        "required": [
+          "mode",
+          "message"
+        ],
+        "title": "ModeResponse",
+        "type": "object"
+      },
       "PlatformSchema": {
         "properties": {
           "example": {
@@ -962,11 +1078,27 @@
       },
       "SummarySchema": {
         "properties": {
+          "contributions": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/ContributionSchema"
+            },
+            "title": "Contributions",
+            "type": "array"
+          },
           "decisions": {
             "items": {
               "$ref": "#/components/schemas/DecisionSchema"
             },
             "title": "Decisions",
+            "type": "array"
+          },
+          "open_questions": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Open Questions",
             "type": "array"
           },
           "overview": {
@@ -978,6 +1110,14 @@
               "$ref": "#/components/schemas/TaskSchema"
             },
             "title": "Tasks",
+            "type": "array"
+          },
+          "topic_decisions": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/TopicDecisionSchema"
+            },
+            "title": "Topic Decisions",
             "type": "array"
           },
           "topics": {
@@ -1042,6 +1182,29 @@
           "responsible"
         ],
         "title": "TaskSchema",
+        "type": "object"
+      },
+      "TopicDecisionSchema": {
+        "properties": {
+          "decision": {
+            "title": "Decision",
+            "type": "string"
+          },
+          "effect": {
+            "default": "",
+            "title": "Effect",
+            "type": "string"
+          },
+          "topic": {
+            "title": "Topic",
+            "type": "string"
+          }
+        },
+        "required": [
+          "topic",
+          "decision"
+        ],
+        "title": "TopicDecisionSchema",
         "type": "object"
       },
       "UploadResponse": {
@@ -1166,6 +1329,59 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/admin/mode": {
+      "post": {
+        "description": "Troca o modo deste processo da API e remonta o container. Solo guarda reuniões e contas em\narquivos; collab usa MongoDB, Redis e workers. As contas de um modo não valem no outro: depois\nda troca, entre com uma conta do modo novo (a primeira cadastrada vira administradora).\nponytail: não persiste; ao reiniciar a API vale o APP_MODE do .env. Só com API_WORKERS=1,\nporque cada processo do uvicorn tem o próprio modo.",
+        "operationId": "switch_mode_admin_mode_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ModeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModeResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "409": {
+            "description": "Configuração ou serviços do modo de destino indisponíveis"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Alterna entre modo solo e colaborativo",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
     "/admin/sessions/purge": {
       "post": {
         "description": "Apaga só sessões: nunca usuários nem reuniões, e nunca a sessão de quem limpa.\nQuem teve a sessão apagada precisa entrar de novo.",
@@ -2522,6 +2738,68 @@
         ]
       }
     },
+    "/meetings/{meeting_id}/chat/stream": {
+      "post": {
+        "description": "Mesmo que POST /chat, mas as primeiras palavras aparecem em segundos (S16-2).",
+        "operationId": "chat_stream_meetings__meeting_id__chat_stream_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "meeting_id",
+            "required": true,
+            "schema": {
+              "title": "Meeting Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChatRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              },
+              "application/x-ndjson": {}
+            },
+            "description": "Uma linha JSON por evento: {\"delta\": \"texto\"} enquanto o modelo escreve; no fim {\"done\": ChatResponse} (vale o answer do done: se a verificação do contrato reprovar a primeira versão, ele traz a corrigida) ou {\"error\": \"mensagem\"}."
+          },
+          "404": {
+            "description": "Reunião não existe ou é de outro usuário"
+          },
+          "422": {
+            "description": "Reunião ainda não foi transcrita"
+          },
+          "429": {
+            "description": "Acima de RATE_LIMIT_PER_MINUTE pedidos por minuto (cabeçalho Retry-After)"
+          },
+          "503": {
+            "description": "O LLM está ocupado com outras perguntas; tente de novo"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Pergunta, com a resposta aos pedaços (NDJSON)",
+        "tags": [
+          "chat"
+        ]
+      }
+    },
     "/meetings/{meeting_id}/export.md": {
       "get": {
         "operationId": "export_markdown_meetings__meeting_id__export_md_get",
@@ -2570,6 +2848,60 @@
           }
         ],
         "summary": "Reunião em Markdown",
+        "tags": [
+          "meetings"
+        ]
+      }
+    },
+    "/meetings/{meeting_id}/live": {
+      "get": {
+        "description": "Enquanto o status for `transcribing`, devolve os trechos que o Whisper local já reconheceu.\nFora dessa etapa (ou com o Whisper da API, que não gera parcial) a lista vem vazia:\na transcrição final sai em GET /meetings/{id}.",
+        "operationId": "get_live_transcript_meetings__meeting_id__live_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "meeting_id",
+            "required": true,
+            "schema": {
+              "title": "Meeting Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LiveTranscriptResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "description": "Reunião não existe ou é de outro usuário"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Transcrição parcial em tempo real",
         "tags": [
           "meetings"
         ]
@@ -2978,13 +3310,13 @@
             }
           },
           {
-            "description": "api, worker-transcribe, worker-llm, bot, streamlit",
+            "description": "api, worker-transcribe, worker-llm, bot",
             "in": "query",
             "name": "service",
             "required": false,
             "schema": {
               "default": "",
-              "description": "api, worker-transcribe, worker-llm, bot, streamlit",
+              "description": "api, worker-transcribe, worker-llm, bot",
               "title": "Service",
               "type": "string"
             }

@@ -209,3 +209,60 @@ def purge_sessions(body: PurgeSessionsRequest, principal: Principal = Depends(_a
     except AuthError as exc:
         raise HTTPException(400, str(exc))
     return CountResponse(count=count)
+
+
+# ── Modo de execução ──────────────────────────────────────────────────
+
+class ModeRequest(BaseModel):
+    mode: Literal["solo", "collab"]
+
+
+class ModeResponse(BaseModel):
+    mode: Literal["solo", "collab"]
+    message: str
+
+
+def _collab_unreachable(settings) -> str:
+    """Mensagem de erro se o MongoDB ou o Redis do .env não respondem; vazio se ambos respondem."""
+    try:
+        from pymongo import MongoClient
+        MongoClient(settings.mongo_uri, serverSelectionTimeoutMS=2000).admin.command("ping")
+    except Exception as exc:
+        return f"MongoDB fora do ar ({settings.mongo_uri}): {str(exc).splitlines()[0][:160]}"
+    try:
+        import redis
+        redis.Redis.from_url(settings.redis_url, socket_timeout=2).ping()
+    except Exception as exc:
+        return f"Redis fora do ar ({settings.redis_url}): {str(exc).splitlines()[0][:160]}"
+    return ""
+
+
+@admin_router.post("/mode", response_model=ModeResponse, summary="Alterna entre modo solo e colaborativo",
+                   responses={409: {"description": "Configuração ou serviços do modo de destino indisponíveis"}})
+def switch_mode(body: ModeRequest, principal: Principal = Depends(_admin)):
+    """Troca o modo deste processo da API e remonta o container. Solo guarda reuniões e contas em
+    arquivos; collab usa MongoDB, Redis e workers. As contas de um modo não valem no outro: depois
+    da troca, entre com uma conta do modo novo (a primeira cadastrada vira administradora).
+    ponytail: não persiste; ao reiniciar a API vale o APP_MODE do .env. Só com API_WORKERS=1,
+    porque cada processo do uvicorn tem o próprio modo."""
+    from config.settings import AppMode, Settings, get_settings
+    from presentation import container as container_module
+
+    settings = get_settings()
+    target = AppMode(body.mode)
+    if settings.app_mode == target:
+        return ModeResponse(mode=target.value, message="A API já está nesse modo.")
+    if settings.api_workers > 1:
+        raise HTTPException(409, f"Com API_WORKERS={settings.api_workers} cada processo teria um modo. "
+                                 "Troque o APP_MODE no .env e reinicie a API.")
+    try:
+        candidate = Settings(app_mode=target)
+    except ValueError as exc:
+        raise HTTPException(409, f"Não foi possível mudar para {target.value}: {exc}")
+    if target == AppMode.COLLAB:
+        error = _collab_unreachable(candidate)
+        if error:
+            raise HTTPException(409, f"Não foi possível mudar para collab: {error}")
+    settings.app_mode = target
+    container_module.get_container.cache_clear()
+    return ModeResponse(mode=target.value, message=f"Modo {target.value} ativo. Entre com uma conta deste modo.")

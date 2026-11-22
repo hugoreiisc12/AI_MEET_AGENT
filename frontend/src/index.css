@@ -1,0 +1,585 @@
+@import "tailwindcss";
+
+@theme {
+  --color-bg: #0a0d12;
+  --color-surface: #0d1117;
+  --color-panel: #11151b;
+  --color-accent: #34d399;
+  --color-accent-strong: #10b981;
+  --color-neon: #00ffc6;
+  --color-neon-strong: #00e5b2;
+  --color-on-color: #ffffff;
+  --font-sans: "DM Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-serif: "Cormorant Garamond", Georgia, serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+}
+
+/* Tema claro. As telas foram escritas no escuro (texto branco/zinc claro sobre fundo escuro);
+   no Tailwind 4 cada cor é uma variável CSS, então o claro redefine a paleta em vez de repetir
+   cada classe com `dark:`: branco<->tinta, zinc invertido (100<->900...) e os tons de destaque
+   escurecidos para manter contraste sobre fundo claro. `text-on-color` fica branco nos dois.
+   ponytail: troca por paleta; um ponto que precise de visual próprio no claro usa `dark:` nele. */
+:root:not(.dark) {
+  --color-bg: #f4f5f7;
+  --color-surface: #ffffff;
+  --color-panel: #ffffff;
+  --color-neon: #0d9488;
+  --color-neon-strong: #0f766e;
+  --color-white: #0b0d10;
+  --color-black: #ffffff;
+  --color-zinc-50: #09090b;
+  --color-zinc-100: #18181b;
+  --color-zinc-200: #27272a;
+  --color-zinc-300: #3f3f46;
+  --color-zinc-400: #52525c;
+  --color-zinc-500: #71717b;
+  --color-zinc-600: #9f9fa9;
+  --color-zinc-700: #d4d4d8;
+  --color-zinc-800: #e4e4e7;
+  --color-zinc-900: #f4f4f5;
+  --color-zinc-950: #fafafa;
+  --color-emerald-200: #065f46;
+  --color-emerald-300: #047857;
+  --color-emerald-400: #059669;
+  --color-rose-200: #9f1239;
+  --color-rose-300: #be123c;
+  --color-rose-400: #e11d48;
+  --color-amber-200: #92400e;
+  --color-amber-300: #b45309;
+  --color-amber-400: #d97706;
+  --color-sky-200: #075985;
+  --color-sky-300: #0369a1;
+  --color-sky-400: #0284c7;
+  color-scheme: light;
+}
+
+html, body, #root { height: 100%; }
+body { background: var(--color-bg); color: var(--color-zinc-100); -webkit-font-smoothing: antialiased; }
+button:disabled { cursor: not-allowed; opacity: 0.45; }
+
+/* Orbe do chat (CSS da referência, escrito só para o escuro): versão clara das superfícies. */
+:root:not(.dark) .mo-root {
+  background: radial-gradient(circle at 50% 42%, rgba(16, 185, 129, 0.08), transparent 58%), linear-gradient(180deg, #f8fafc 0%, #eef1f5 100%);
+}
+:root:not(.dark) .mo-bg { background-image: radial-gradient(rgba(15, 23, 42, 0.08) 1px, transparent 1px); }
+:root:not(.dark) .mo-surface { background: rgba(255, 255, 255, 0.96); }
+:root:not(.dark) .mo-card { background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%); }
+:root:not(.dark) .mo-ring { border-color: rgba(15, 23, 42, 0.14); }
+:root:not(.dark) .mo-field { color: #18181b; }
+:root:not(.dark) .mo-field::placeholder { color: rgba(63, 63, 70, 0.55); }
+:root:not(.dark) .mo-send { border-color: rgba(15, 23, 42, 0.12); background: rgba(15, 23, 42, 0.05); color: rgba(15, 23, 42, 0.5); }
+:root:not(.dark) .mo-send[data-ready] { background: #059669; border-color: #059669; color: #ffffff; }
+:root:not(.dark) .mo-a-head { color: #047857; }
+:root:not(.dark) .mo-a-body { color: #27272a; }
+:root:not(.dark) .mo-lab { color: #3f3f46; }
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@layer base {
+  :root {
+    --font-display: 'Plus Jakarta Sans', system-ui, sans-serif;
+    --font-body: 'DM Sans', system-ui, sans-serif;
+    --font-serif-accent: 'Cormorant Garamond', Georgia, serif;
+    --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+  }
+
+  body {
+    font-family: var(--font-body);
+  }
+
+  h1, h2, h3, h4, .font-display {
+    font-family: var(--font-display);
+  }
+
+  .font-mono-tabular {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+/* ───────────────────────── MorphOrb (ai-thinking-org-and-input) ───────────────────────── */
+
+.mo-root {
+  --oCenter: 0;
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-height: 440px;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(circle at 50% 42%, rgba(16, 185, 129, 0.06), transparent 58%),
+    linear-gradient(180deg, #0b0e12 0%, #090b0f 100%);
+  border-radius: 18px;
+  isolation: isolate;
+}
+
+.mo-bg {
+  position: absolute;
+  inset: 0;
+  background-image: radial-gradient(rgba(255, 255, 255, 0.04) 1px, transparent 1px);
+  background-size: 24px 24px;
+  mask-image: radial-gradient(ellipse at 50% 48%, black 35%, transparent 80%);
+  pointer-events: none;
+}
+
+.mo-halo {
+  position: absolute;
+  top: 46%;
+  left: 50%;
+  width: 340px;
+  height: 340px;
+  transform: translate(-50%, -50%);
+  border-radius: 999px;
+  background: radial-gradient(
+    circle,
+    rgba(52, 211, 153, calc(0.22 * var(--oCenter))) 0%,
+    rgba(16, 185, 129, calc(0.08 * var(--oCenter))) 45%,
+    transparent 72%
+  );
+  filter: blur(22px);
+  pointer-events: none;
+}
+
+.mo-mover {
+  position: absolute;
+  top: 46%;
+  left: 50%;
+  width: 0;
+  height: 0;
+  z-index: 3;
+}
+
+.mo-trail {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100px;
+  height: 100px;
+  border-radius: 999px;
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.65) 0%, rgba(52, 211, 153, 0.28) 50%, transparent 72%);
+  filter: blur(6px);
+  opacity: 0;
+  pointer-events: none;
+  will-change: transform, opacity;
+}
+
+.mo-actor {
+  --w: 560px;
+  --h: 60px;
+  --r: 999px;
+  --oGlow: 1;
+  --oHalo: 0;
+  --oPill: 1;
+  --oBall: 0;
+  --oGreen: 0;
+  --oCard: 0;
+  --oRing: 1;
+  --oInput: 1;
+  --inScale: 1;
+  --oAur: 1;
+  --gs: 0.55;
+  --cs: 1;
+  --hOp: 0;
+  --dotS: 0;
+  --bloom: 1;
+  position: relative;
+  width: var(--w);
+  height: var(--h);
+  transform: translate(-50%, -50%) scale(var(--cs));
+  border-radius: var(--r);
+  will-change: width, height, transform;
+}
+
+.mo-actor[data-shake] {
+  animation: mo-shake 0.24s cubic-bezier(0.36, 0.07, 0.19, 0.97) both;
+}
+
+@keyframes mo-shake {
+  0%, 100% { transform: translate(-50%, -50%) scale(var(--cs)); }
+  20% { transform: translate(calc(-50% - 6px), -50%) scale(var(--cs)); }
+  45% { transform: translate(calc(-50% + 6px), -50%) scale(var(--cs)); }
+  70% { transform: translate(calc(-50% - 4px), -50%) scale(var(--cs)); }
+}
+
+.mo-underglow {
+  position: absolute;
+  inset: -10px;
+  border-radius: inherit;
+  background: radial-gradient(ellipse at 50% 60%, rgba(52, 211, 153, 0.24), rgba(16, 185, 129, 0.08) 55%, transparent 75%);
+  filter: blur(16px);
+  opacity: var(--oGlow);
+  pointer-events: none;
+}
+
+.mo-actor[data-typing] .mo-underglow {
+  filter: blur(20px);
+}
+
+.mo-halo-green {
+  position: absolute;
+  inset: -34px;
+  border-radius: 999px;
+  background: radial-gradient(circle, rgba(52, 211, 153, 0.5), rgba(16, 185, 129, 0.15) 50%, transparent 72%);
+  filter: blur(22px);
+  opacity: var(--oHalo);
+  pointer-events: none;
+}
+
+.mo-surface {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: rgba(18, 22, 29, 0.94);
+  box-shadow:
+    0 18px 46px rgba(0, 0, 0, 0.55),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  opacity: var(--oPill);
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.mo-aurora {
+  position: absolute;
+  inset: -40%;
+  opacity: calc(var(--oAur) * 0.45);
+  filter: blur(24px);
+  pointer-events: none;
+}
+
+.mo-aurora i {
+  position: absolute;
+  width: 45%;
+  height: 120%;
+  border-radius: 999px;
+  animation: mo-aur 9s ease-in-out infinite alternate;
+}
+
+.mo-aurora i:nth-child(1) { left: 5%; background: rgba(16, 185, 129, 0.32); }
+.mo-aurora i:nth-child(2) { left: 32%; background: rgba(56, 189, 248, 0.22); animation-delay: -2.2s; }
+.mo-aurora i:nth-child(3) { left: 58%; background: rgba(52, 211, 153, 0.28); animation-delay: -4.5s; }
+.mo-aurora i:nth-child(4) { left: 78%; background: rgba(20, 184, 166, 0.2); animation-delay: -6.5s; }
+
+@keyframes mo-aur {
+  from { transform: translateY(-10%) scale(0.95); }
+  to { transform: translateY(10%) scale(1.08); }
+}
+
+.mo-ball {
+  position: absolute;
+  inset: 0;
+  border-radius: 999px;
+  background: radial-gradient(circle at 35% 32%, #ffffff 0%, #d4d4d8 48%, #52525b 100%);
+  box-shadow: 0 0 32px rgba(255, 255, 255, 0.35);
+  opacity: var(--oBall);
+  pointer-events: none;
+}
+
+.mo-green {
+  position: absolute;
+  inset: 0;
+  border-radius: 999px;
+  background: radial-gradient(circle at 36% 30%, #a7f3d0 0%, #34d399 42%, #059669 100%);
+  box-shadow: 0 0 42px rgba(52, 211, 153, 0.5);
+  transform: scale(var(--gs));
+  opacity: var(--oGreen);
+  pointer-events: none;
+}
+
+.mo-card {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(180deg, rgba(20, 25, 33, 0.96) 0%, rgba(13, 17, 23, 0.98) 100%);
+  border: 1px solid rgba(52, 211, 153, calc(0.28 * var(--bloom)));
+  box-shadow:
+    0 24px 60px rgba(0, 0, 0, 0.6),
+    0 0 calc(38px * var(--bloom)) rgba(16, 185, 129, calc(0.22 * var(--bloom))),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  opacity: var(--oCard);
+  pointer-events: none;
+}
+
+.mo-ring {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  opacity: var(--oRing);
+  pointer-events: none;
+  transition: border-color 0.2s ease;
+}
+
+.mo-actor[data-flash] .mo-ring {
+  border-color: rgba(248, 113, 113, 0.75);
+}
+
+.mo-input {
+  position: relative;
+  z-index: 2;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 10px 0 18px;
+  opacity: var(--oInput);
+  transform: scale(var(--inScale));
+}
+
+.mo-spark {
+  width: 18px;
+  height: 18px;
+  color: #34d399;
+  flex-shrink: 0;
+}
+
+.mo-field {
+  flex: 1;
+  min-width: 0;
+  background: transparent;
+  border: 0;
+  outline: none;
+  color: #f4f4f5;
+  font-size: 14.5px;
+  font-family: var(--font-body);
+}
+
+.mo-field::placeholder {
+  color: rgba(228, 228, 231, 0.48);
+}
+
+.mo-send {
+  width: 40px;
+  height: 40px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.5);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background-color 0.18s ease, color 0.18s ease, border-color 0.18s ease, transform 0.18s ease;
+}
+
+.mo-send svg {
+  width: 17px;
+  height: 17px;
+}
+
+.mo-send[data-ready] {
+  background: #34d399;
+  border-color: #34d399;
+  color: #06281e;
+}
+
+.mo-send[data-ready]:hover {
+  transform: scale(1.04);
+  background: #6ee7b7;
+}
+
+.mo-orb {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 220px;
+  height: 220px;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  z-index: 3;
+}
+
+.mo-pulse {
+  position: absolute;
+  inset: 0;
+  border-radius: 999px;
+  border: 1.5px solid rgba(52, 211, 153, 0.7);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.mo-answer {
+  position: absolute;
+  inset: 0;
+  padding: 16px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  opacity: var(--oCard);
+  pointer-events: none;
+  outline: none;
+  overflow: hidden;
+  z-index: 4;
+}
+
+.mo-root[data-phase="answered"] .mo-answer {
+  pointer-events: auto;
+}
+
+.mo-a-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #6ee7b7;
+  opacity: var(--hOp);
+  flex-shrink: 0;
+}
+
+.mo-a-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: #34d399;
+  display: inline-block;
+  transform: scale(var(--dotS));
+}
+
+.mo-a-body {
+  margin: 0;
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: #e4e4e7;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.mo-w {
+  display: inline-block;
+  opacity: 0;
+}
+
+.mo-status {
+  --sOp: 0;
+  --sTy: 6;
+  position: absolute;
+  top: calc(46% + 92px);
+  left: 50%;
+  transform: translate(-50%, calc(var(--sTy) * 1px));
+  opacity: var(--sOp);
+  height: 24px;
+  min-width: 160px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  z-index: 4;
+}
+
+.mo-lab {
+  position: absolute;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #d4d4d8;
+  white-space: nowrap;
+}
+
+.mo-lab-done {
+  color: #6ee7b7;
+}
+
+.mo-in {
+  animation: mo-lab-in 0.28s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+.mo-out {
+  animation: mo-lab-out 0.22s ease forwards;
+}
+
+@keyframes mo-lab-in {
+  from { opacity: 0; transform: translateY(5px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes mo-lab-out {
+  from { opacity: 1; transform: translateY(0); }
+  to { opacity: 0; transform: translateY(-5px); }
+}
+
+.mo-dots {
+  display: inline-flex;
+  gap: 3px;
+}
+
+.mo-dots i {
+  width: 3.5px;
+  height: 3.5px;
+  border-radius: 999px;
+  background: #34d399;
+  animation: mo-dot 1.2s ease-in-out infinite;
+}
+
+.mo-dots i:nth-child(2) { animation-delay: 0.16s; }
+.mo-dots i:nth-child(3) { animation-delay: 0.32s; }
+
+@keyframes mo-dot {
+  0%, 80%, 100% { opacity: 0.25; transform: scale(0.8); }
+  40% { opacity: 1; transform: scale(1.1); }
+}
+
+.mo-reset {
+  position: absolute;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%) translateY(8px);
+  padding: 8px 18px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(24, 24, 27, 0.9);
+  color: #e4e4e7;
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s ease, transform 0.25s ease, background-color 0.2s ease;
+  z-index: 5;
+}
+
+.mo-root[data-phase="answered"] .mo-reset {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateX(-50%) translateY(0);
+}
+
+.mo-reset:hover {
+  background: rgba(39, 39, 42, 0.96);
+  border-color: rgba(52, 211, 153, 0.45);
+}
+
+.mo-live {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+}
+
+.mo-debug {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  border-radius: 10px;
+  background: rgba(15, 23, 42, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  font-size: 11px;
+  color: #cbd5e1;
+  z-index: 10;
+}
+
+.mo-chip {
+  font-family: var(--font-mono);
+  color: #6ee7b7;
+}

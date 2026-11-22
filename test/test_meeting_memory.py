@@ -50,8 +50,8 @@ class Spy:
     def __init__(self, reply=None):
         self.reply, self.context = reply, ""
 
-    def chat(self, question, context, history, **_):
-        self.context = context
+    def chat(self, question, context, history, question_context="", **_):
+        self.context = context + question_context
         return self.reply or "ok"
 
 

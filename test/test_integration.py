@@ -47,7 +47,8 @@ class MockLLMService(ILLMService):
             ]
         )
 
-    def chat(self, question: str, context: str, history: list[dict], summary_context: str = "", user_id: str | None = None) -> str:
+    def chat(self, question: str, context: str, history: list[dict], summary_context: str = "",
+             user_id: str | None = None, question_context: str = "") -> str:
         question_lower = question.lower()
 
         if "quem" in question_lower or "responsável" in question_lower:

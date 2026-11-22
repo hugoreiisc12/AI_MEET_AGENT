@@ -1,5 +1,33 @@
 # Notas de versão
 
+## v1.1.0 — 2026-11-22 (memória do agente, ADR-022)
+
+Interface nova em React no lugar do Streamlit (container `web`, porta 8080) e o agente com memória.
+Avaliação no modelo local (`qwen2.5:7b`): 13/16 → 19/22 checagens.
+
+### O que mudou
+- **Interface nova** (React/Vite): Estúdio Ao Vivo, Gravações, Observabilidade e Minha conta; login nos dois
+  modos; tema claro e escuro; transcrição ao vivo durante a transcrição; troca solo/colaborativo para o admin.
+- **Memória do agente:** acha a resposta mesmo com outras palavras (busca por significado), liga reuniões
+  pelas mesmas pessoas e tópicos e cita falas de outras reuniões com título, data e horário; lembra
+  preferências; conversa longa sem perder o que foi combinado no início.
+- **Respostas mais rápidas:** pergunta repetida volta do cache; perguntas seguidas na mesma reunião
+  reaproveitam o prompt; primeiras palavras aparecem enquanto o agente escreve (chat de Gravações).
+- **Agente mais didático (contrato v2):** "Perguntas para você" sobre o que ficou em aberto, resumo com
+  contribuições de cada participante, mapa tópico → decisão e questões em aberto.
+- **Citações clicáveis:** abrem a reunião no trecho citado.
+- **Qualquer provider de LLM** pelo `.env` (Ollama, OpenAI, OpenRouter ou servidor compatível), com
+  ferramentas por JSON quando o modelo não tem chamada nativa.
+- **Mais verificação:** reunião, horário e autor de cada citação; datas fora do contexto; nota de memória
+  que o usuário não pediu.
+
+### Para atualizar
+- `MEMORY_V2=true` (padrão). Um comando só: `docker compose up -d --build --remove-orphans` constrói, sobe e
+  indexa as reuniões antigas (serviço `memory-index`).
+- O modelo de embeddings (~470 MB) é baixado na primeira indexação.
+- Voltar ao agente da 1.0 sem perder dados: `MEMORY_V2=false`.
+
+
 ## v1.0.0 — 2026-11-16 (produção local)
 
 Primeira versão fechada. Roda completa com Docker numa máquina (macOS validado; Windows com

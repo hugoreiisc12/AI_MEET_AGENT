@@ -52,3 +52,6 @@ backups
 credentials.json
 token.json
 *client_secret*.json
+
+# Interface nova: tem imagem própria (frontend/Dockerfile)
+frontend/

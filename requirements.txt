@@ -4,8 +4,6 @@
 #
 #    pip-compile --output-file=requirements.txt --strip-extras requirements.in
 #
-altair==6.3.0
-    # via streamlit
 amqp==5.4.2
     # via kombu
 annotated-doc==0.0.6
@@ -20,11 +18,6 @@ anyio==4.16.0
     #   langsmith
     #   openai
     #   starlette
-    #   streamlit
-attrs==26.1.0
-    # via
-    #   jsonschema
-    #   referencing
 av==18.1.0
     # via faster-whisper
 billiard==4.3.2
@@ -48,7 +41,6 @@ click==8.5.1
     #   click-plugins
     #   click-repl
     #   huggingface-hub
-    #   streamlit
     #   uvicorn
 click-didyoumean==0.3.1
     # via celery
@@ -135,22 +127,12 @@ idna==3.20
     #   requests
 imageio-ffmpeg==0.8.1
     # via -r requirements.in
-itsdangerous==2.2.0
-    # via streamlit
-jinja2==3.1.6
-    # via
-    #   altair
-    #   pydeck
 jiter==0.19.0
     # via openai
 jsonpatch==1.47
     # via langchain-core
 jsonpointer==3.12
     # via jsonpatch
-jsonschema==4.26.0
-    # via altair
-jsonschema-specifications==2025.9.1
-    # via jsonschema
 kombu==5.7.0
     # via celery
 langchain-core==1.8.0
@@ -177,18 +159,11 @@ langsmith==0.14.17
     # via langchain-core
 lxml==6.1.3
     # via python-docx
-markupsafe==3.0.4
-    # via jinja2
-narwhals==2.28.0
-    # via altair
 numpy==2.4.6
     # via
     #   -r requirements.in
     #   ctranslate2
     #   onnxruntime
-    #   pandas
-    #   pydeck
-    #   streamlit
 oauthlib==4.0.1
     # via requests-oauthlib
 onnxruntime==1.32.0
@@ -209,18 +184,12 @@ ormsgpack==1.13.1
     # via langgraph-checkpoint
 packaging==26.3
     # via
-    #   altair
     #   huggingface-hub
     #   langchain-core
     #   langsmith
     #   onnxruntime
-    #   streamlit
-pandas==3.1.1
-    # via streamlit
 pillow==13.0.0
-    # via
-    #   fpdf2
-    #   streamlit
+    # via fpdf2
 playwright==1.65.2
     # via -r requirements.in
 prompt-toolkit==3.0.53
@@ -233,9 +202,6 @@ protobuf==7.36.2
     #   googleapis-common-protos
     #   onnxruntime
     #   proto-plus
-    #   streamlit
-pyarrow==26.0.1
-    # via streamlit
 pyasn1==0.6.5
     # via pyasn1-modules
 pyasn1-modules==0.4.2
@@ -254,16 +220,12 @@ pydantic-core==2.50.4
     # via pydantic
 pydantic-settings==2.16.3
     # via -r requirements.in
-pydeck==0.9.3
-    # via streamlit
 pymongo==4.20.0
     # via -r requirements.in
 pyparsing==3.3.3
     # via httplib2
 python-dateutil==2.9.0.post0
-    # via
-    #   celery
-    #   pandas
+    # via celery
 python-docx==1.2.0
     # via -r requirements.in
 python-dotenv==1.2.4
@@ -271,9 +233,7 @@ python-dotenv==1.2.4
     #   -r requirements.in
     #   pydantic-settings
 python-multipart==0.0.33
-    # via
-    #   -r requirements.in
-    #   streamlit
+    # via -r requirements.in
 pyyaml==6.0.3
     # via
     #   ctranslate2
@@ -281,10 +241,6 @@ pyyaml==6.0.3
     #   langchain-core
 redis==8.1.0
     # via -r requirements.in
-referencing==0.37.0
-    # via
-    #   jsonschema
-    #   jsonschema-specifications
 requests==2.34.2
     # via
     #   -r requirements.in
@@ -292,15 +248,10 @@ requests==2.34.2
     #   langsmith
     #   requests-oauthlib
     #   requests-toolbelt
-    #   streamlit
 requests-oauthlib==2.0.0
     # via google-auth-oauthlib
 requests-toolbelt==1.0.0
     # via langsmith
-rpds-py==2026.9.1
-    # via
-    #   jsonschema
-    #   referencing
 six==1.17.0
     # via python-dateutil
 sniffio==1.3.1
@@ -308,11 +259,7 @@ sniffio==1.3.1
     #   langsmith
     #   openai
 starlette==1.10.0
-    # via
-    #   fastapi
-    #   streamlit
-streamlit==1.67.0
-    # via -r requirements.in
+    # via fastapi
 tenacity==9.2.1
     # via langchain-core
 tokenizers==0.23.3
@@ -327,7 +274,6 @@ truststore==0.10.5
     #   httpx2
 typing-extensions==4.16.0
     # via
-    #   altair
     #   anyio
     #   click-repl
     #   fastapi
@@ -342,9 +288,7 @@ typing-extensions==4.16.0
     #   pydantic-core
     #   pydantic-settings
     #   python-docx
-    #   referencing
     #   starlette
-    #   streamlit
     #   typing-inspection
 typing-inspection==0.4.5
     # via
@@ -362,23 +306,18 @@ uuid-utils==0.19.0
     #   langchain-core
     #   langsmith
 uvicorn==0.54.0
-    # via
-    #   -r requirements.in
-    #   streamlit
+    # via -r requirements.in
 vine==5.1.0
     # via
     #   amqp
     #   celery
     #   kombu
-watchdog==7.1.0
-    # via streamlit
 wcwidth==0.9.4
     # via prompt-toolkit
 websockets==17.4
     # via
     #   langgraph-sdk
     #   langsmith
-    #   streamlit
 xxhash==4.1.0
     # via
     #   langgraph

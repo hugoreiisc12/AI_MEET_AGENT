@@ -157,7 +157,10 @@ Estrutura base (sempre inclua esses campos):
   ],
   "decisions": [
     {"description": "...", "context": "contexto breve", "status": "aprovada|condicionada|proposta|pendente|rejeitada|inconclusiva"}
-  ]
+  ],
+  "contributions": [{"speaker": "nome como na transcrição", "points": ["até 3 pontos, uma frase cada"]}],
+  "topic_decisions": [{"topic": "tópico", "decision": "decisão afetada", "effect": "pré-condição|restrição|risco|custo|prazo|motivo"}],
+  "open_questions": ["pergunta ou pendência que ficou sem resposta na reunião"]
 }
 
 Regras de tarefas e decisões (contrato, §4 e §7):
@@ -166,6 +169,9 @@ Regras de tarefas e decisões (contrato, §4 e §7):
 - Toda proposta, sugestão ou assunto adiado entra em "decisions" com o status adequado
   ("proposta", "pendente"...), nunca como "aprovada". Silêncio não é aprovação.
 - "status": "aprovada" exige manifestação clara de aprovação na transcrição.
+- "contributions": o que cada participante trouxe de relevante (informação, proposta, objeção,
+  compromisso), só de quem falou. "topic_decisions": só ligações ditas ou evidentes na reunião.
+  "open_questions": só o que alguém perguntou ou deixou para depois sem resposta.
 """
 
     BASE_CHAT = """Você é um assistente de reuniões. Você participou da reunião abaixo

@@ -1,6 +1,6 @@
 """Observabilidade centralizada no Redis (que todos os serviços já usam).
 
-- Logs: cada processo (api, workers, bot, streamlit) manda as linhas para o stream
+- Logs: cada processo (api, workers, bot) manda as linhas para o stream
   `obs:logs` (últimas LOG_MAXLEN), com serviço, nível, reunião e mensagem.
 - Métricas: contadores em `obs:counters` (hash) e amostras de duração em listas
   `obs:samples:<nome>` (últimas SAMPLE_MAXLEN), somadas entre todos os processos.

@@ -120,3 +120,26 @@ def test_documento_antigo_sem_status_e_derivado():
     assert meeting_from_dict(base).status == MeetingStatus.PENDING
     assert meeting_from_dict({**base, "summary": {"overview": "o"}}).status == MeetingStatus.DONE
     assert meeting_from_dict({**base, "status": "fallback_legendas"}).status == MeetingStatus.PENDING
+
+
+def test_reuniao_pronta_vai_para_a_memoria_e_falha_dela_nao_derruba(repo, audio):
+    indexed = []
+
+    class Indexer:
+        def index(self, meeting):
+            indexed.append((meeting.id, meeting.status))
+    uc = ProcessMeetingUC(TranscribeMeetingUC(FakeTranscriber()), SummarizeMeetingUC(FakeLLM()), repo, indexer=Indexer())
+    uc.execute(ProcessMeetingInput("m1", audio, "T"))
+    assert indexed == [("m1", MeetingStatus.DONE)]
+
+    from use_cases.meeting_index import MemoryIndexer
+
+    class Broken:
+        model_name = "x"
+
+        def embed_documents(self, texts):
+            raise RuntimeError("sem modelo")
+    from infrastructure.index_store import IndexStore
+    uc = ProcessMeetingUC(TranscribeMeetingUC(FakeTranscriber()), SummarizeMeetingUC(FakeLLM()), repo,
+                          indexer=MemoryIndexer(IndexStore(str(repo._base.parent / "index")), Broken()))
+    assert uc.execute(ProcessMeetingInput("m2", audio, "T")).status == MeetingStatus.DONE

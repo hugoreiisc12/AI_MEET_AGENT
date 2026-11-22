@@ -34,8 +34,12 @@ class ILLMService(ABC):
         """
 
     @abstractmethod
-    def chat(self, question: str, context: str, history: list[dict], summary_context: str = "", user_id: str | None = None) -> str:
+    def chat(self, question: str, context: str, history: list[dict], summary_context: str = "",
+             user_id: str | None = None, question_context: str = "", can_search: bool = False,
+             on_delta=None) -> str:
         """Responde pergunta sobre reunião com contexto, histórico, sumário e identificação do usuário.
+        `context` é o que vale para a conversa toda (a reunião aberta); `question_context`, o que foi
+        buscado para esta pergunta (trechos, outras reuniões) e vai junto com ela.
 
         Contrato de resposta:
         - Português do Brasil obrigatório

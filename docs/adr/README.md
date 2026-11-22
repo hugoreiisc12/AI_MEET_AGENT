@@ -29,6 +29,7 @@ Uma ADR só vira código depois de aceita. Ao aceitar, troque o status e a data 
 | 019 | Observabilidade centralizada (métricas, logs, batimento dos workers) | Implementada em 2026-11-15 | — | Sim |
 | 020 | Memória entre reuniões (§14 do contrato) | Implementada em 2026-11-15 | — | Sim |
 | 021 | Latência do LLM: janela fixa e o que mais pesa | Janela fixa implementada; resto proposto | — | Sim |
+| 022 | Memória do agente em camadas (curta, longa, procedural), RAG, CAG e harness adaptável ao provider | Aceita em 2026-11-21 | 12–16 | Sim (flag `MEMORY_V2`) |
 
 ### Desvios na implementação da Sprint 1
 
@@ -874,3 +875,127 @@ o mesmo modelo no Ollama: parte da demora sentida no chat vinha daí.
 
 **Reverte-se assim.** `OLLAMA_NUM_CTX_MAX` menor (ex.: 16384) diminui a memória, mas reuniões
 longas passam a dar erro de contexto excedido.
+
+
+## ADR-022 — Memória do agente em camadas, RAG, CAG e harness adaptável ao provider
+
+**Status.** Aceita pelo dono do produto em 2026-11-21; implementada nas Sprints 12 a 16 (2026-11-22).
+
+**Contexto (medido no código e na ADR-021).**
+- O chat escolhe trechos da transcrição por palavras em comum (`use_cases/llm_context.select_relevant`);
+  sinônimos e paráfrases ficam de fora, e reuniões longas perdem contexto. O próprio código anota
+  "trocar por busca vetorial se as respostas em reuniões longas começarem a perder contexto".
+- A memória entre reuniões (ADR-020) traz decisões e tarefas das outras reuniões por palavra-chave e as
+  notas de `remember`. Não liga pessoas nem tópicos entre reuniões, e não há embeddings no projeto.
+- A conversa entra inteira no prompt até estourar o orçamento; não há resumo dos turnos antigos.
+- O contrato ocupa ~8.600 tokens (60–75% do prompt). O Ollama só é rápido quando o começo do prompt
+  se repete (cache de prefixo/KV): 2–3 s com cache, 47–52 s quando perde (ADR-021).
+- Máquina de referência: Apple M4 16 GB, `qwen2.5:7b`, já em swap. Mongo 7 Community, sem busca vetorial.
+
+**Decisão.** Uma camada de memória com quatro partes, montada por um orçamento de contexto, sobre um
+cliente de modelo que conhece a capacidade de cada provider.
+
+1. **Harness adaptável (perfil do modelo).** `ModelProfile` por provider/modelo, vindo do `.env`: janela
+   de contexto, se tem chamada de ferramenta nativa, se tem modo JSON, modelo de embeddings. Saídas
+   estruturadas validadas por esquema, com uma tentativa de reparo; ferramenta por JSON quando o
+   provider não tem chamada nativa. Piso: o modelo atual (`qwen2.5:7b`, 7B parâmetros, 32k de janela).
+   Trocar de provider é configuração, não código.
+2. **Orçamento de contexto, com prefixo estável.** A janela é repartida em blocos com teto próprio, nesta
+   ordem: contrato → memória procedural → reunião aberta → memória longa recuperada → memória curta →
+   pergunta → espaço da resposta. O que muda pouco vem primeiro, para o cache de prefixo do Ollama (e o
+   de providers por API) continuar valendo entre perguntas.
+3. **Memória curta.** Últimos turnos da conversa na íntegra e um resumo corrido dos anteriores, refeito
+   quando a conversa passa do teto do bloco. Por conversa (reunião + usuário).
+4. **Memória longa (índice semântico e de entidades).** Ao fim da transcrição, a reunião é dividida em
+   trechos por fala (com horário e orador) e cada trecho ganha um embedding. O resumo alimenta entidades
+   normalizadas (pessoas, tópicos, decisões, tarefas) e as menções de cada uma em cada reunião: é isso que
+   liga "o mesmo tópico" e "as mesmas pessoas" entre reuniões. Busca híbrida (palavra + vetor) e expansão
+   pelas entidades.
+5. **Memória procedural.** Como o agente deve agir para aquele usuário/organização: as notas de `remember`,
+   preferências de formato, e um glossário de termos da organização (o que "o financeiro" significa ali).
+   Entra no prefixo estável, logo depois do contrato.
+6. **RAG entre reuniões.** Recupera trechos e entidades das reuniões do mesmo dono, com citação (título,
+   data, horário), reordenados por relevância, recência e estado da decisão. Também como ferramenta
+   `search_meetings`, para o agente aprofundar quando precisar.
+7. **CAG (camada quente, na definição do dono do produto).** Antes de ir ao banco: dados recém-gerados
+   (resumos, trechos e entidades das últimas reuniões, ainda quentes) e respostas recentes ficam num cache
+   (Redis no collab, memória do processo no solo), escrito junto com a gravação no banco. A pergunta
+   consulta primeiro esse cache: resposta já dada a pergunta equivalente, no mesmo escopo e sem dado mais
+   novo, volta direto; senão, usa os trechos quentes; só então amplia para o RAG no banco. Invalida quando
+   chega reunião nova, quando o resumo ou uma tarefa muda. Observação de nome: na literatura, CAG costuma
+   significar pré-carregar o conhecimento no contexto/cache KV do modelo; aqui o termo segue a definição
+   do produto, e o pré-carregamento no sentido da literatura é o prefixo estável do item 2.
+8. **Contrato v2 (SPEC).** Receptividade e didática; análise por fala ("quem disse o quê e o que isso muda");
+   mapa de como cada tópico do escopo afeta cada decisão; perguntas ao usuário sobre o que ficou em
+   aberto; regras de citação entre reuniões; versão compacta para o chat (ADR-021) sem perder regras.
+
+**Armazenamento.** Coleções novas `chunks` (trecho, embedding, modelo do embedding), `entities` e
+`mentions`, por dono, no Mongo (collab) e em JSON (solo). Busca vetorial por similaridade de cosseno em
+Python sobre os trechos do dono.
+ponytail: varredura linear; teto prático ~50 mil trechos por dono. Acima disso, Qdrant em container ou
+busca vetorial do Mongo (Atlas ou versão com suporte), atrás da mesma porta `IVectorIndex`.
+
+**Embeddings (decidido no aceite).** Independentes do sistema operacional e do provider do LLM: o modelo
+roda dentro do processo Python, em ONNX Runtime, que tem pacotes para Linux, macOS e Windows (x86 e ARM)
+e funciona igual no Docker. Padrão: `intfloat/multilingual-e5-small` (licença MIT, mais de 100 idiomas,
+treinado para busca, 384 dimensões), arquivo `onnx/model.onnx` genérico (470 MB, fp32): as variantes
+quantizadas do repositório são presas a um tipo de CPU (`avx512`, `arm64`) e ficam de fora. O modelo é
+baixado uma vez do Hugging Face para o cache (`HF_HOME`; no compose, o volume `model_cache`).
+Sem dependência nova: `onnxruntime`, `tokenizers` e `huggingface-hub` já vêm com o `faster-whisper`. O
+`fastembed` foi descartado porque exige `huggingface-hub<2.0`, e o projeto trava a 2.4.0.
+Adaptadores opcionais pela mesma porta `IEmbedder`: Ollama (`/api/embed`) e OpenAI
+(`text-embedding-3-small`). Cada vetor guarda o nome do modelo: trocar de modelo exige reindexar (script).
+
+Medido em 2026-11-21 (M4 16 GB, `.venv` Python 3.11, CPU): carga do modelo 0,8 s (depois do download
+de ~470 MB, uma vez); ~1 ms por trecho em lotes de 16; 2 ms por pergunta; pico do processo 1,6 GB com o
+modelo carregado. Paráfrase em português ("Quem ficou responsável pelo calendário de fechamento?")
+ranqueada acima de trecho sem relação (`test_embeddings.py`, com `EMBEDDING_MODEL_TEST=1`).
+Atenção: a memória somada ao Ollama e ao Whisper na máquina de 16 GB precisa ser medida na S16-2.
+
+**Harness (S12, implementado).** `ModelProfile` (`infrastructure/llm/model_client.py`) diz a janela, se
+há ferramenta nativa e se há modo JSON; o grafo é o mesmo para Ollama, OpenAI, OpenRouter e qualquer
+servidor compatível (`OPENAI_BASE_URL`). Ordem do prompt para o cache de prefixo: contrato e regras,
+reunião aberta e conversa (iguais entre perguntas), e só no fim o que foi buscado para a pergunta.
+
+**Consequências.**
+- Mais uma chamada por pergunta (embedding da pergunta, ~50 ms local) e indexação no fim de cada reunião.
+- Mais memória no Ollama (o modelo de embeddings). Na máquina de 16 GB isso disputa com o LLM: medir.
+- Isolamento por dono passa a valer também no índice e no cache: teste obrigatório.
+- Mudança no contrato exige o aceite do dono do contrato e repetir `scripts/eval_agent`.
+
+**Alternativas descartadas.** LangChain/LlamaIndex para a memória: o projeto já saiu do LangChain
+(ADR-014) e as peças aqui são pequenas. Banco vetorial dedicado desde já: mais um serviço para um volume
+que a varredura linear atende. Aumentar a janela em vez de recuperar: o contrato já ocupa a maior parte e a
+máquina de referência não comporta janela maior.
+
+**Como ficou (2026-11-22).** Sprints 12 a 16 entregues; `MEMORY_V2=true` por padrão. Eval do agente no
+modelo piso: 13/16 na linha de base → **19/22** com a memória e o contrato v2 (`docs/eval/`).
+- Harness: `ModelProfile` + `ContextBudget` (`infrastructure/llm/model_client.py`); tetos dos blocos
+  proporcionais à janela (no piso, os valores de antes); prefixo estável (contrato, regras, notas do usuário,
+  reunião aberta) e o que é da pergunta junto com ela: perguntas seguidas na mesma reunião leem o prompt em
+  ~0,3 s em vez de 13–18 s.
+- Memória longa: trechos por fala com vetor e entidades (pessoas com apelidos; tópicos pelo limiar 0,93,
+  calibrado no e5-small), busca híbrida (RRF), falas de outras reuniões com `[Título · data · horário]`,
+  ferramenta `search_meetings`. Memória curta: até 40 trocas pelo orçamento, o resto em resumo corrido sem
+  chamar o modelo. Procedural: notas no prefixo estável.
+- CAG: respostas por pergunta normalizada, escopo dono + geração dos dados do dono (qualquer gravação de
+  reunião ou nota invalida); camada quente dos índices na memória do processo; Redis no collab.
+- Verificação nova: origem das citações (reunião, horário, autor), datas fora do contexto, `remember` sem
+  pedido do usuário.
+- Streaming: `POST /meetings/{id}/chat/stream` (NDJSON); só a primeira tentativa sai aos pedaços e a final
+  substitui se a verificação reprovar. Medido no M4 16 GB com `caffeinate`: primeiras palavras em 5–7 s com o
+  cache da reunião quente e 14–18 s na primeira pergunta de uma reunião; resposta inteira 7–40 s; processo
+  Python (agente + embeddings + índice) com pico de 1,46 GB; Ollama `qwen2.5:7b` em 32k com 8,2 GB; nenhum swap
+  novo durante a medição. Whisper ao mesmo tempo não foi medido.
+- Matriz (S16-1): piso 19/22; `nemotron-mini` 3/22 (janela real de 4k, abaixo do piso) sem mudar código;
+  modelo local maior e modelo por API não medidos (sem disco e sem chave).
+
+Desvios do plano: índices em arquivo (`data/index`, volume compartilhado pela API e pelos workers nos dois
+modos), não em coleções do Mongo: mesmo código no solo e no collab, isolamento por dono conferido em teste,
+e o volume de um dono cabe em numpy (ver `ponytail` em `infrastructure/index_store.py`). Equivalência de
+pergunta no cache só por texto normalizado: por vetor, perguntas sobre tarefas diferentes viravam a mesma.
+Métricas do caminho das respostas só no collab (as métricas do sistema já dependem do Redis).
+
+**Reverte-se assim.** Flag `MEMORY_V2=false` volta ao caminho atual (`select_relevant` + ADR-020); as
+coleções novas podem ser apagadas sem afetar reuniões e resumos.
+

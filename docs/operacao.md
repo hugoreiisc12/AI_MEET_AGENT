@@ -23,7 +23,7 @@ for o caso, rode `dc up -d`. Toda linha de log traz o id da reunião:
 
 ## Restaurar o banco
 
-1. Pare quem escreve: `dc stop api streamlit worker-transcribe worker-llm`.
+1. Pare quem escreve: `dc stop api web worker-transcribe worker-llm`.
 2. Restaure: `dc run --rm backup restore backups/mongo-<data>.archive.gz`. As coleções do backup
    **substituem** as atuais.
 3. Suba de novo: `dc up -d` e confira o `/health`.
@@ -36,7 +36,7 @@ A gravação de áudio não está no backup do banco. Uma reunião restaurada se
 O token de captura do bot é derivado da chave. **Trocar a chave durante uma gravação faz o bot
 perder o resto do áudio daquela reunião.**
 
-1. Confira que nenhuma reunião está gravando (Streamlit, painel "Em andamento").
+1. Confira que nenhuma reunião está gravando (interface, Estúdio: status da reunião acompanhada).
 2. Gere a chave nova: `python -c "import secrets; print(secrets.token_urlsafe(32))"` e grave no `.env`.
 3. `dc up -d` para recriar os containers com a chave nova. Reinicie também o worker do bot.
 4. Avise quem usa a chave de serviço (scripts e integrações).
@@ -59,6 +59,24 @@ Sessões de usuário não dependem da chave e continuam valendo.
   volta para a fila depois de 6 h (ADR-015). Reprocesse para não esperar.
 - Se o bot morreu durante a gravação, o áudio gravado até ali é processado. Se a reunião ficou
   em `recording`, use "Reprocessar".
+
+## Memória do agente (ADR-022)
+
+- Trechos com vetor e entidades ficam em `data/index` (um arquivo por reunião e um por dono). Cada reunião
+  é indexada ao terminar o resumo; se a transcrição mudar, o índice é refeito na próxima pergunta.
+- Reuniões gravadas antes da memória, ou depois de trocar `EMBEDDING_MODEL`: o próprio `dc up -d` indexa
+  (serviço `memory-index`, que roda e termina; ver `dc logs memory-index`). À mão:
+  `dc run --rm memory-index` (no solo, `python -m scripts.reindex_memory`).
+- Na primeira indexação o modelo de embeddings (~470 MB) é baixado para o cache do Hugging Face.
+- Ligar na produção (S16-3): `MEMORY_V2=true` no `.env` e `dc up -d --build --remove-orphans` (constrói,
+  sobe e indexa); depois, se quiser, `python -m scripts.eval_agent` para comparar com `docs/eval/`. Algo
+  piorou: `MEMORY_V2=false` e `dc up -d` voltam ao agente da v1.0 sem perder dados (o índice fica em disco).
+- Apagar o índice (por exemplo, para trocar de modelo de embeddings): parar os serviços, apagar
+  `data/index` e rodar a reindexação.
+- Se o índice falhar, o chat continua com a busca por palavra; o erro fica no log do worker.
+- Cache de respostas (CAG): invalida sozinho a cada gravação de reunião ou nota do dono e expira em 24 h.
+  Para limpar tudo no collab: `dc exec redis sh -c "redis-cli --scan --pattern 'cag:*' | xargs -r redis-cli del"`
+  (no solo, reiniciar a API). O painel de Observabilidade mostra acerto do cache e p50/p95 por caminho.
 
 ## Contas
 

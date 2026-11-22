@@ -1,4 +1,6 @@
+import logging
 import re
+import time
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -6,21 +8,27 @@ from typing import Callable, Optional
 
 from domain.entities.meeting import Meeting, Task
 from domain.interfaces.llm_service import ChatReply, ILLMService, LLMServiceError
+from use_cases.contract_checks import FALLBACK
 from use_cases.llm_context import select_relevant
-from use_cases.meeting_memory import build_memory, new_note
+from use_cases.meeting_memory import MAX_CHARS as MEMORY_CHARS, MAX_NOTES, build_memory, new_note
 
+logger = logging.getLogger(__name__)
 _WANTS_ATTACHMENT = re.compile(r"anex|attach|em arquivo|\bpdf\b|\bword\b|docx|xlsx|excel|planilha|csv", re.IGNORECASE)
 _EMAIL = re.compile(r"[^@\s,;<>]+@[^@\s,;<>]+\.[^@\s,;<>]+")
 DOCUMENT_FORMATS = ("pdf", "docx", "xlsx", "csv", "html", "md")
 _FORMAT_ALIASES = {"word": "docx", "doc": "docx", "markdown": "md", "excel": "xlsx", "xls": "xlsx",
                    "planilha": "xlsx", "htm": "html", "dashboard": "html", "web": "html"}
 
-# Quantas mensagens anteriores acompanham a pergunta.
-HISTORY_TURNS = 10
+# Quantas mensagens anteriores acompanham a pergunta (40 perguntas e respostas). O agente corta
+# pelo orçamento da janela e resume o que sobrar (memória curta, S13-4).
+HISTORY_TURNS = 80
 # Em reunião longa, quanto de transcrição acompanha a pergunta. Poucos trechos
 # bem escolhidos respondem melhor (e mais rápido) que a janela cheia: com ela
 # cheia o modelo local deixou passar um dado que estava no meio do contexto.
 EXCERPT_CHARS = 8000
+# Trechos de outras reuniões que entram sozinhos; a ferramenta search_meetings traz até SEARCH_CHARS.
+CROSS_CHARS = 2500
+SEARCH_CHARS = 5000
 
 
 @dataclass
@@ -29,6 +37,9 @@ class ChatWithMeetingInput:
     question: str
     # None = usa a conversa guardada na reunião.
     history: list[dict] | None = None
+    # Recebe o texto aos pedaços enquanto o modelo escreve (S16-2). A resposta final pode diferir:
+    # se a verificação do contrato reprovar, vale a corrigida, devolvida em `answer`.
+    on_delta: Optional[Callable[[str], None]] = None
 
 
 @dataclass
@@ -40,6 +51,8 @@ class ChatWithMeetingOutput:
     # Ação que o agente preparou (e-mail a confirmar ou documento gerado); também fica na
     # mensagem do assistente em chat_history["action"].
     action: Optional[dict] = None
+    path: str = ""          # caminho da resposta (S14-4): cache, quente ou banco
+    searched: bool = False  # o agente usou search_meetings
 
 
 class ChatWithMeetingUC:
@@ -49,7 +62,18 @@ class ChatWithMeetingUC:
 
     def __init__(self, llm_service: ILLMService, repository=None, max_context_chars: int = 30000,
                  documents_dir: Optional[Path] = None,
-                 write_document: Optional[Callable[..., Path]] = None, memory_store=None) -> None:
+                 write_document: Optional[Callable[..., Path]] = None, memory_store=None, indexer=None,
+                 agent_cache=None, metrics: Optional[Callable[[str, float], None]] = None,
+                 window_chars: int = 0) -> None:
+        # Tetos dos blocos pela janela do modelo (ContextBudget, S12-5/S16-1): no modelo piso (32k) ficam
+        # nos valores fixos de sempre; numa janela menor encolhem na mesma proporção, sem estourar.
+        def cap(fixed: int, share: float) -> int:
+            return min(fixed, int(window_chars * share)) if window_chars else fixed
+        self._excerpt_chars, self._cross_chars = cap(EXCERPT_CHARS, 0.2), cap(CROSS_CHARS, 0.08)
+        self._search_chars, self._records_chars = cap(SEARCH_CHARS, 0.12), cap(MEMORY_CHARS, 0.06)
+        self._indexer = indexer  # busca híbrida nos trechos (S13-3); sem ele, busca por palavra
+        self._cache = agent_cache  # CAG (S14-3): resposta já dada à mesma pergunta
+        self._metrics = metrics or (lambda path, seconds: None)
         self._memory = memory_store  # notas do remember; sem ele, sem memória entre reuniões
         self._llm = llm_service
         self._repo = repository
@@ -68,18 +92,42 @@ class ChatWithMeetingUC:
             )
 
         history = meeting.chat_history if input_data.history is None else input_data.history
+        question, t0 = input_data.question, time.monotonic()
+        previous = next((m["content"] for m in reversed(history) if m.get("role") == "user"), "")
+        # Roteador (S14-4): resposta em cache → trechos quentes na memória → índice no disco (RAG).
+        cached = self._cache.get(meeting.owner_id, meeting.id, previous, question) if self._cache else None
+        if cached is not None:
+            self._save_turn(meeting, question, cached, None)
+            self._metrics("cache", time.monotonic() - t0)
+            return ChatWithMeetingOutput(answer=cached, success=True, path="cache")
+        loads = self._indexer.store.disk_loads if self._indexer else 0
+        context, question_context = self._context(meeting, question)
+        llm_history = [_for_llm(m) for m in history[-HISTORY_TURNS:]]
+        can_search = self._indexer is not None and self._repo is not None
+        searched = False
+        stream = {"on_delta": input_data.on_delta} if input_data.on_delta else {}
         try:
-            reply = self._llm.chat(
-                question=input_data.question,
-                context=self._context(meeting, input_data.question),
-                history=[_for_llm(m) for m in history[-HISTORY_TURNS:]],
-            )
+            reply = self._llm.chat(question=question, context=context, history=llm_history,
+                                   question_context=question_context, **({"can_search": True} if can_search else {}),
+                                   **stream)
+            if isinstance(reply, ChatReply) and (reply.tool or {}).get("name") == "search_meetings":
+                searched = True  # S14-2: o agente pediu para aprofundar; responde de novo com o que voltar
+                query = str((reply.tool.get("arguments") or {}).get("query") or question)
+                found = self._search_others(meeting, query, self._search_chars)
+                question_context += (f"RESULTADO DA BUSCA EM OUTRAS REUNIÕES (search_meetings: \"{query}\"):\n"
+                                     f"{found or 'Nenhum trecho encontrado nas outras reuniões deste usuário.'}\n\n")
+                reply = self._llm.chat(question=question, context=context, history=llm_history,
+                                       question_context=question_context, **stream)
         except LLMServiceError as e:
             return ChatWithMeetingOutput(answer="", success=False, error_message=str(e))
         if isinstance(reply, str):  # implementações da porta que não usam ferramentas
             reply = ChatReply(reply)
+        path = "banco" if self._indexer and self._indexer.store.disk_loads != loads else "quente"
 
         answer, action = reply.answer, None
+        if (reply.tool or {}).get("name") == "search_meetings":  # pediu de novo: não insiste
+            reply = ChatReply(reply.answer or "Não encontrei isso nas suas outras reuniões.")
+            answer = reply.answer
         if reply.tool:
             user_texts = [input_data.question, *(m["content"] for m in history if m.get("role") == "user")]
             try:
@@ -87,14 +135,20 @@ class ChatWithMeetingUC:
             except Exception as e:  # documento que não deu para gerar: diz o motivo, não derruba o chat
                 answer = f"Não consegui preparar isso: {e}"
 
+        self._save_turn(meeting, question, answer, action)
+        if self._cache and not reply.tool and answer and answer != FALLBACK:  # ação e recusa não se repetem
+            self._cache.put(meeting.owner_id, meeting.id, previous, question, answer)
+        self._metrics(path, time.monotonic() - t0)
+        return ChatWithMeetingOutput(answer=answer, success=True, action=action, path=path, searched=searched)
+
+    def _save_turn(self, meeting: Meeting, question: str, answer: str, action: Optional[dict]) -> None:
         if self._repo:
             reply_msg = {"role": "assistant", "content": answer, **({"action": action} if action else {})}
-            new = [{"role": "user", "content": input_data.question}, reply_msg]
+            new = [{"role": "user", "content": question}, reply_msg]
             meeting.chat_history = [*meeting.chat_history, *new]
             # Só a conversa: gravar a reunião inteira devolvia o status e o resumo de quando a
             # pergunta começou, apagando o resumo que terminou enquanto o modelo respondia.
             self._repo.append_chat(meeting.id, new)
-        return ChatWithMeetingOutput(answer=answer, success=True, action=action)
 
     def _prepare_action(self, meeting: Meeting, tool: dict, user_texts: list[str]) -> tuple[str, Optional[dict]]:
         args = tool.get("arguments") or {}
@@ -189,40 +243,106 @@ class ChatWithMeetingUC:
                     found.append({"id": a["id"], "format": a["format"], "filename": a["filename"]})
         return found, ""
 
-    def _context(self, meeting: Meeting, question: str) -> str:
+    def _context(self, meeting: Meeting, question: str) -> tuple[str, str]:
+        """(o que vale para a conversa toda, o que foi buscado para esta pergunta). O primeiro fica
+        igual entre perguntas da mesma reunião: é o prefixo que o Ollama reaproveita (S12-5)."""
         # A reunião aberta diz o próprio título e data: sem isso, com registros de outras reuniões
         # no contexto, o modelo trocou "esta reunião" pela anterior (teste de 2026-11-15).
         opened = (f"REUNIÃO ABERTA (é sobre esta que o usuário pergunta): \"{meeting.title}\", "
                   f"{meeting.started_at:%d/%m/%Y}\n\n")
-        memory = self._memory_block(meeting, question)
-        return memory + opened + self._meeting_context(meeting, question) if memory else \
-            self._meeting_context(meeting, question)
+        stable, excerpts = self._meeting_context(meeting, question)
+        intent = classify_intent(question)
+        hint = f"TIPO DE PERGUNTA (classificado pelo sistema): {intent}. {INTENT_HINTS[intent]}\n\n"
+        return self._notes_block(meeting) + opened + stable, \
+            excerpts + self._memory_block(meeting, question, intent) + hint
 
-    def _memory_block(self, meeting: Meeting, question: str) -> str:
-        """§14: registros das outras reuniões do mesmo dono e as notas dele."""
+    def _notes_block(self, meeting: Meeting) -> str:
+        """Memória procedural (S15-1): preferências, glossário e contexto que o usuário pediu para
+        lembrar. Fica no prefixo estável (muda só quando ele grava ou apaga uma nota)."""
+        if self._memory is None:
+            return ""
+        notes = self._memory.list(meeting.owner_id)[-MAX_NOTES:]
+        if not notes:
+            return ""
+        return ("PREFERÊNCIAS, GLOSSÁRIO E CONTEXTO QUE O USUÁRIO PEDIU PARA VOCÊ LEMBRAR (memória procedural, "
+                "§14; valem para todas as reuniões dele; siga as preferências de formato):\n"
+                + "\n".join(f"- {n['text']}" for n in notes) + "\n\n")
+
+    def _others(self, meeting: Meeting) -> list[Meeting]:
+        """Outras reuniões do MESMO dono (o repositório filtra): é o limite de tudo que vem de fora."""
+        return [m for m in self._repo.list_all(meeting.owner_id)
+                if m.id != meeting.id and not m.source_id and m.owner_id == meeting.owner_id]
+
+    def _search_others(self, meeting: Meeting, question: str, max_chars: int) -> str:
+        if self._indexer is None or self._repo is None:
+            return ""
+        try:
+            related = self._indexer.entities.related_meetings(meeting, question)
+            return self._indexer.chunks.search_many(self._others(meeting), question, max_chars, related)
+        except Exception:
+            logger.exception("[%s] busca entre reuniões falhou", meeting.id)
+            return ""
+
+    def _memory_block(self, meeting: Meeting, question: str, intent: str = "fato") -> str:
+        """§14: registros das outras reuniões do mesmo dono e falas delas ligadas à pergunta (S14-1).
+        As notas do usuário vão no prefixo estável (_notes_block)."""
         if self._memory is None or self._repo is None:
             return ""
-        others = [m for m in self._repo.list_all(meeting.owner_id) if m.id != meeting.id]
-        return build_memory(meeting, others, self._memory.list(meeting.owner_id), question)
+        block = build_memory(meeting, self._others(meeting), [], question, self._records_chars)
+        found = self._search_others(meeting, question, self._cross_chars * (2 if intent == "entre reuniões" else 1))
+        if found:
+            block += ("FALAS DE OUTRAS REUNIÕES DO MESMO USUÁRIO LIGADAS A ESTA PERGUNTA (§14, §20). São literais; "
+                      "cada linha já traz [Título · data · horário]: ao usar uma, cite nesse formato.\n"
+                      f"{found}\n\n")
+        return block
 
-    def _meeting_context(self, meeting: Meeting, question: str) -> str:
+    def _meeting_context(self, meeting: Meeting, question: str) -> tuple[str, str]:
         full = meeting.transcript_for_llm
         if len(full) <= self._max_chars:
-            return _stats_block(meeting) + _decisions_block(meeting) + full
+            return _stats_block(meeting) + _decisions_block(meeting) + full, ""
         summary = meeting.summary.formatted if meeting.summary else ""
-        excerpts = select_relevant(
-            meeting.transcript_formatted or meeting.transcript_text,
-            question,
-            max_chars=min(EXCERPT_CHARS, self._max_chars),
-        )
-        return (
+        excerpts = self._excerpts(meeting, question, min(self._excerpt_chars, self._max_chars))
+        stable = (
             f"{meeting.participants_header}"
             f"{_stats_block(meeting)}"
             f"RESUMO DA REUNIÃO:\n{summary}\n\n"
-            "A reunião é longa: abaixo estão só os trechos da transcrição mais ligados à pergunta. "
-            "Se a resposta não estiver neles nem no resumo, diga que não encontrou nos trechos consultados.\n\n"
-            f"{excerpts}"
+            "A reunião é longa: junto com cada pergunta vêm só os trechos da transcrição mais ligados a ela. "
+            "Se a resposta não estiver neles nem no resumo, diga que não encontrou nos trechos consultados."
         )
+        return stable, f"TRECHOS DA TRANSCRIÇÃO LIGADOS A ESTA PERGUNTA:\n{excerpts}\n\n"
+
+
+    def _excerpts(self, meeting: Meeting, question: str, max_chars: int) -> str:
+        if self._indexer is not None:
+            try:
+                return self._indexer.chunks.search(meeting, question, max_chars)
+            except Exception:
+                logger.exception("[%s] busca nos trechos falhou; usando a busca por palavra", meeting.id)
+        return select_relevant(meeting.transcript_formatted or meeting.transcript_text, question, max_chars=max_chars)
+
+
+# Intenção da pergunta (S15-3), sem chamar o modelo: muda quanto se busca e o que se pede na resposta.
+_INTENTS = [
+    ("pendências", re.compile(r"\b(em aberto|pendent|pend[êe]ncia|falta(m)? (definir|decidir)|ficou para|"
+                              r"pr[óo]ximos passos|o que falta|sem respons[áa]vel|n[ãa]o (foi )?resolvid)", re.I)),
+    ("entre reuniões", re.compile(r"\b(outras? reuni|reuni[õo]es anteriores|reuni[ãa]o anterior|[úu]ltima reuni|"
+                                  r"antes|desde|hist[óo]ric|evolu|mudou|continua valendo|ainda vale|"
+                                  r"nas minhas reuni)", re.I)),
+    ("análise", re.compile(r"\b(o que (voc[êe] )?achou|avalia|an[áa]lise|opini[ãa]o|melhorar|pontos fortes|"
+                           r"riscos?\b|recomenda)", re.I)),
+]
+INTENT_HINTS = {
+    "fato": "Responda direto, com a evidência (§19).",
+    "pendências": ("Liste o que ficou em aberto com o estado de cada item e termine com \"Perguntas para você\" "
+                   "(no máximo três, só as que mudam decisão, prazo ou responsável; §10.1)."),
+    "entre reuniões": ("Use as falas e registros de outras reuniões, citando [Título · data · horário] de cada "
+                       "uma (§20); a versão mais recente vale (§14)."),
+    "análise": "Siga o §11: o que funcionou, o que precisa melhorar, riscos e recomendações, com evidências.",
+}
+
+
+def classify_intent(question: str) -> str:
+    return next((name for name, pattern in _INTENTS if pattern.search(question)), "fato")
 
 
 _SPEAKER_LINE = re.compile(r"^\[\d{1,2}:\d{2}(?::\d{2})?\]\s*([^:\]\n]{1,60}):", re.MULTILINE)

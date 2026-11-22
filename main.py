@@ -2,7 +2,7 @@
 main.py — Ponto de entrada do Meet Agent.
 
 Modos de uso:
-  streamlit run main.py              → Interface web Streamlit
+  (interface)                        → frontend/ (React): `cd frontend && npm run dev`, ou o container `web` no compose
   python main.py --test <audio.wav>  → Teste via terminal (sem UI)
   python main.py --api               → Sobe FastAPI via uvicorn
   python main.py --worker [FILAS]    → Worker de processamento (Celery); FILAS = transcribe,llm (padrão)
@@ -15,18 +15,6 @@ import os
 import subprocess
 
 sys.path.insert(0, os.path.dirname(__file__))
-
-
-def run_streamlit() -> None:
-    """Sobe a interface Streamlit."""
-    subprocess.run(
-        [
-            sys.executable, "-m", "streamlit", "run",
-            "presentation/streamlit/app.py",
-            "--server.headless", "false",
-        ],
-        check=True,
-    )
 
 
 def run_api() -> None:
@@ -190,4 +178,5 @@ if __name__ == "__main__":
         rest = sys.argv[idx + 1:]
         run_worker(queues=rest[0] if rest and not rest[0].startswith("-") else "transcribe,llm")
     else:
-        run_streamlit()
+        print(__doc__)
+        sys.exit(1)

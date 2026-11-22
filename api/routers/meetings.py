@@ -14,6 +14,7 @@ from config.settings import get_settings
 from domain.entities.meeting import Meeting, MeetingStatus
 from infrastructure.email.email_sender import EmailSender
 from infrastructure.exporters.markdown_exporter import MarkdownExporter
+from infrastructure.transcriber.live_transcript import read_partial
 from presentation.container import BotNotReady, MeetingInProgress, get_container
 
 router = APIRouter()
@@ -158,6 +159,31 @@ def get_status(meeting_id: str, principal: Principal = Depends(current_principal
     return response
 
 
+class LiveSegment(BaseModel):
+    start: float
+    end: float
+    text: str
+
+
+class LiveTranscriptResponse(BaseModel):
+    meeting_id: str
+    status: MeetingStatus
+    segments: list[LiveSegment] = Field(description="Trechos já reconhecidos; só durante transcribing")
+
+
+@router.get("/{meeting_id}/live", response_model=LiveTranscriptResponse, responses=_NOT_FOUND,
+            summary="Transcrição parcial em tempo real")
+def get_live_transcript(meeting_id: str, principal: Principal = Depends(current_principal)):
+    """Enquanto o status for `transcribing`, devolve os trechos que o Whisper local já reconheceu.
+    Fora dessa etapa (ou com o Whisper da API, que não gera parcial) a lista vem vazia:
+    a transcrição final sai em GET /meetings/{id}."""
+    meeting = _meeting(meeting_id, principal)
+    segments = []
+    if meeting.status is MeetingStatus.TRANSCRIBING and meeting.audio_path:
+        segments = [LiveSegment(**s) for s in read_partial(meeting.audio_path)]
+    return LiveTranscriptResponse(meeting_id=meeting_id, status=meeting.status, segments=segments)
+
+
 @router.post("/{meeting_id}/resume", response_model=UploadResponse, summary="Retoma uma reunião travada",
              responses={**_NOT_FOUND, 409: {"description": "A reunião não está parada numa etapa"}})
 def resume(meeting_id: str, principal: Principal = Depends(current_principal)):
@@ -230,6 +256,9 @@ def _to_response(m: Meeting, with_summary: bool) -> MeetingStatusResponse:
                 DecisionSchema(description=d.description, context=d.context, status=d.status)
                 for d in m.summary.decisions
             ],
+            contributions=m.summary.contributions,
+            topic_decisions=m.summary.topic_decisions,
+            open_questions=m.summary.open_questions,
         )
     return MeetingStatusResponse(
         meeting_id=m.id,

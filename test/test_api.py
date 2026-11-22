@@ -97,6 +97,8 @@ class FakeContainer:
     clear_chat = Container.clear_chat
     bot_status = Container.bot_status
     request_bot_setup = Container.request_bot_setup
+    indexer = None  # sem memória do agente
+    _bot_worker_alive = staticmethod(lambda: True)  # batimento do bot: os testes que precisam desligam
     bot_account = None  # sem credenciamento (como em solo); os testes do bot ligam um store
     auth = None
     _link_lock = staticmethod(lambda key: LINK_LOCK)  # em vez do Redis  # como em solo; os testes de login ligam com `with_login`
@@ -162,6 +164,24 @@ def test_upload_acima_do_teto_devolve_413_e_nao_deixa_arquivo(ctx):
 def test_upload_recusa_extensao_estranha_e_arquivo_vazio(ctx):
     assert ctx.client.post("/meetings/upload", headers=AUTH, files={"file": ("a.sh", b"x")}).status_code == 415
     assert ctx.client.post("/meetings/upload", headers=AUTH, files={"file": ("a.wav", b"")}).status_code == 422
+
+
+def test_live_devolve_parcial_so_durante_a_transcricao(ctx):
+    from domain.entities.meeting import MeetingStatus
+    from infrastructure.transcriber.live_transcript import PartialWriter
+    audio = ctx.tmp / "audio" / "m9.webm"
+    audio.parent.mkdir(parents=True, exist_ok=True)
+    audio.write_bytes(b"x")
+    w = PartialWriter(str(audio))
+    w.append(0.0, 1.2, "bom dia")
+    w.close()
+    ctx.repo.save(Meeting(id="m9", title="t", audio_path=str(audio), status=MeetingStatus.TRANSCRIBING))
+    r = ctx.client.get("/meetings/m9/live", headers=AUTH).json()
+    assert r["status"] == "transcribing" and [s["text"] for s in r["segments"]] == ["bom dia"]
+
+    ctx.repo.save(Meeting(id="m9", title="t", audio_path=str(audio), status=MeetingStatus.SUMMARIZING))
+    assert ctx.client.get("/meetings/m9/live", headers=AUTH).json()["segments"] == []
+    assert ctx.client.get("/meetings/nada/live", headers=AUTH).status_code == 404
 
 
 def chunk(ctx, session="m1", data=b"abc", token=None):
@@ -379,8 +399,10 @@ def test_cada_usuario_ve_so_as_proprias_reunioes(with_login):
     # reunião alheia responde 404 em toda rota, sem revelar que existe
     for method, path, body in [
         ("get", "/meetings/{id}", None), ("get", "/meetings/{id}/status", None),
+        ("get", "/meetings/{id}/live", None),
         ("get", "/meetings/{id}/export.md", None), ("delete", "/meetings/{id}", None),
         ("post", "/meetings/{id}/process", None), ("post", "/meetings/{id}/chat", {"question": "oi"}),
+        ("post", "/meetings/{id}/chat/stream", {"question": "oi"}),
         ("patch", "/meetings/{id}/tasks/0", {"done": True}),
         ("post", "/meetings/{id}/tasks/email", {"to": "a@b.com"}),
     ]:
@@ -752,3 +774,51 @@ def test_memoria_cada_um_ve_e_apaga_so_as_proprias_notas(with_login):
     assert c.delete("/memory/n1", headers=bia).status_code == 404
     assert c.delete("/memory/n1", headers=ana).status_code == 204 and mem.list(ana_user["id"]) == []
     assert c.get("/memory/", headers=AUTH).status_code == 401  # chave de serviço não tem "minhas notas"
+
+
+def test_troca_de_modo_so_admin_e_recusa_collab_sem_servicos(with_login):
+    from config.settings import get_settings
+    c = with_login.client
+    admin, _ = signup(with_login)
+    bia, _ = signup(with_login, email="bia@empresa.com", name="Bia")
+    atual = get_settings().app_mode.value
+
+    assert c.post("/admin/mode", headers=bia, json={"mode": "collab"}).status_code == 403
+    assert c.post("/admin/mode", headers=admin, json={"mode": "outro"}).status_code == 422
+    assert c.post("/admin/mode", headers=admin, json={"mode": atual}).json()["mode"] == atual
+    if atual == "solo":
+        # conftest aponta Mongo e Redis para porta morta: a troca é recusada e o modo não muda
+        r = c.post("/admin/mode", headers=admin, json={"mode": "collab"})
+        assert r.status_code == 409, r.text
+        assert get_settings().app_mode.value == "solo"
+
+
+
+def test_chat_em_streaming_manda_pedacos_e_a_resposta_final(ctx):
+    import json as _json
+    from use_cases.chat_with_meeting import ChatWithMeetingOutput
+    ctx.repo.save(Meeting(id="m1", title="t", transcript_text="[00:01] Ana: oi"))
+
+    def execute(data):
+        for piece in ("Ana ", "disse ", "oi."):
+            data.on_delta(piece)
+        return ChatWithMeetingOutput(answer="Ana disse oi (corrigida).", success=True)
+    ctx.container.chat_with_meeting = SimpleNamespace(execute=execute)
+    r = ctx.client.post("/meetings/m1/chat/stream", json={"question": "o que a Ana disse?"}, headers=AUTH)
+    assert r.status_code == 200 and r.headers["content-type"].startswith("application/x-ndjson")
+    events = [_json.loads(line) for line in r.text.splitlines()]
+    assert [e["delta"] for e in events if "delta" in e] == ["Ana ", "disse ", "oi."]
+    assert events[-1]["done"]["answer"] == "Ana disse oi (corrigida)."  # vale a final, não a soma dos pedaços
+
+
+def test_bot_fora_do_ar_avisa_e_nao_enfileira(bot_setup):
+    """2026-11-22: com a conta pronta mas nenhum worker do bot, o envio ia para a fila e nada acontecia."""
+    c = bot_setup.client
+    ana, _ = signup(bot_setup)
+    bot_setup.container.bot_account.set("ready", "Conta do bot conectada")
+    bot_setup.container._bot_worker_alive = lambda: False
+    status = c.get("/bot/status", headers=ana).json()
+    assert status["status"] == "offline" and "--profile bot" in status["message"]
+    r = c.post("/meetings/bot", headers=ana, json={"meeting_url": "https://meet.google.com/abc-defg-hij"})
+    assert r.status_code == 409 and "Nenhum bot está rodando" in r.json()["detail"]
+    assert bot_setup.container.bots == []

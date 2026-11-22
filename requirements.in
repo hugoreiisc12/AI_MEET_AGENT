@@ -23,7 +23,6 @@ celery>=5.3
 requests>=2.31
 
 # Interface
-streamlit>=1.35
 
 # Documentos gerados pelo chat (ferramenta create_document)
 python-docx>=1.1

@@ -75,7 +75,20 @@ def _build_repository(settings):
     return JsonMeetingRepository(settings.storage_path)
 
 
+def _chat_metrics(path: str, seconds: float) -> None:
+    """Caminho de cada resposta do chat (S14-4): cache, quente (trechos na memória) ou banco."""
+    from infrastructure import observability as obs
+    obs.incr("chat_answers_total", {"path": path})
+    obs.observe("chat_seconds", seconds, {"path": path})
+
+
+BOT_OFFLINE_MESSAGE = ("Nenhum bot está rodando para entrar nas reuniões. Suba o bot com "
+                       "`docker compose --profile bot up -d bot` (ou, no Mac, `python main.py --bot-worker`).")
+
+
 class Container:
+    indexer = None  # memória do agente; montada no __init__
+
     def __init__(self) -> None:
         settings = get_settings()
         llm = MeetingAgent()
@@ -86,28 +99,37 @@ class Container:
         if settings.enable_calendar:
             from infrastructure.calendar.google_calendar_service import GoogleCalendarService
             self.calendar = GoogleCalendarService(settings.google_credentials_path, settings.google_token_path)
+        # CAG (ADR-022, S14-3): respostas em cache por dono; toda gravação de reunião ou nota invalida.
+        from infrastructure.hot_cache import build_hot_cache
+        from use_cases.agent_cache import AgentCache, InvalidatingMemory, InvalidatingRepository
+        # MEMORY_V2=false: agente da v1.0 (sem cache, sem índice; o contrato v1 vem do MeetingAgent).
+        self.agent_cache = AgentCache(build_hot_cache(settings)) if settings.memory_v2 else None
         self.repository = _build_repository(settings)
-        # Login de usuários (ADR-011): só em collab. Em solo não há login.
-        self.auth = None
-        if settings.is_collab:
-            from infrastructure.auth_store import MongoAuthStore
-            from use_cases.auth import AuthService
-            self.auth = AuthService(
-                MongoAuthStore(settings.mongo_uri, settings.mongo_db),
-                session_days=settings.session_days,
-                allow_registration=settings.allow_registration,
-            )
-            try:
-                self.auth.ensure_admin()
-            except Exception as exc:  # banco fora na partida: tenta de novo na próxima
-                logger.warning("Não foi possível conferir o admin: %s", exc)
+        if self.agent_cache:
+            self.repository = InvalidatingRepository(self.repository, self.agent_cache)
+        # Login de usuários (ADR-011) nos dois modos: MongoDB no collab, arquivo JSON no solo.
+        # As contas não se misturam: quem troca de modo entra com uma conta do outro armazenamento.
+        from infrastructure.auth_store import JsonAuthStore, MongoAuthStore
+        from use_cases.auth import AuthService
+        store = (MongoAuthStore(settings.mongo_uri, settings.mongo_db) if settings.is_collab
+                 else JsonAuthStore(str(Path(settings.storage_path).parent / "auth.json")))
+        self.auth = AuthService(store, session_days=settings.session_days,
+                                allow_registration=settings.allow_registration)
+        try:
+            self.auth.ensure_admin()
+        except Exception as exc:  # banco fora na partida: tenta de novo na próxima
+            logger.warning("Não foi possível conferir o admin: %s", exc)
         # Credenciamento da conta do bot pela interface: só em collab (bot na fila).
         self.bot_account = None
         if settings.is_collab:
             from infrastructure.bot_account_store import BotAccountStore
             self.bot_account = BotAccountStore(settings.mongo_uri, settings.mongo_db)
         self.transcribe_meeting = TranscribeMeetingUC(_build_transcriber(settings))
-        self.summarize_meeting = SummarizeMeetingUC(llm, max_context_chars=settings.llm_context_chars)
+        # Quanto cabe por pedido, pela janela do modelo (ModelProfile): no piso (32k) dá os 30 mil de sempre.
+        from infrastructure.llm.model_client import CHARS_PER_TOKEN, NUM_PREDICT
+        window_chars = int((llm._budget.window_tokens - NUM_PREDICT) * CHARS_PER_TOKEN)
+        meeting_chars = min(settings.llm_context_chars, int(window_chars * 0.45))
+        self.summarize_meeting = SummarizeMeetingUC(llm, max_context_chars=meeting_chars)
         from infrastructure.exporters.document_writer import write_document
         self.documents_dir = Path(settings.documents_path)
         if settings.is_collab:
@@ -116,15 +138,29 @@ class Container:
         else:
             from infrastructure.memory_store import JsonMemoryStore
             self.memory = JsonMemoryStore(str(Path(settings.storage_path).parent / "memories.json"))
+        if self.agent_cache:
+            self.memory = InvalidatingMemory(self.memory, self.agent_cache)
+        # Memória longa do agente (ADR-022): trechos com vetor e entidades em data/index, que a API e
+        # os workers compartilham. O modelo de embeddings só carrega no primeiro uso.
+        from infrastructure.embeddings import build_embedder
+        from infrastructure.index_store import IndexStore
+        from use_cases.meeting_index import MemoryIndexer
+        # Montado sempre (o modelo só carrega no primeiro uso): mesmo com MEMORY_V2=false, apagar uma
+        # reunião limpa o índice dela. Chat e pipeline só o usam com a flag ligada.
+        self.indexer = MemoryIndexer(IndexStore(str(Path(settings.storage_path).parent / "index")),
+                                     build_embedder(settings))
+        memory_v2_indexer = self.indexer if settings.memory_v2 else None
         self.chat_with_meeting = ChatWithMeetingUC(
-            llm, repository=self.repository, max_context_chars=settings.llm_context_chars,
+            llm, repository=self.repository, max_context_chars=meeting_chars, window_chars=window_chars,
             documents_dir=self.documents_dir, write_document=_counted_write_document(write_document),
-            memory_store=self.memory,
+            memory_store=self.memory, indexer=memory_v2_indexer, agent_cache=self.agent_cache,
+            metrics=_chat_metrics,
         )
         from infrastructure.recorder.speaker_events import load_speaker_events
         self.process_meeting = ProcessMeetingUC(
             self.transcribe_meeting, self.summarize_meeting, self.repository,
             load_speaker_events=lambda audio: load_speaker_events(audio, exclude=(settings.bot_name, "Você", "You")),
+            indexer=memory_v2_indexer,
         )
 
     def register_user(self, name: str, email: str, password: str) -> User:
@@ -186,6 +222,8 @@ class Container:
         for follower in self.repository.find_by(source_id=meeting.id):
             self._follow(follower)  # copia o resultado antes de a fonte sumir
         self.repository.delete(meeting.id)
+        if self.indexer:
+            self.indexer.forget(meeting)  # trechos e menções saem junto: nada da reunião apagada fica no índice
         shutil.rmtree(self.documents_dir / meeting.id, ignore_errors=True)  # documentos gerados no chat
         if meeting.audio_path and not self.repository.find_by(audio_path=meeting.audio_path):
             audio = Path(meeting.audio_path)  # com a gravação, os arquivos auxiliares (.speakers.jsonl…)
@@ -401,7 +439,19 @@ class Container:
         if status in ("creating", "waiting_login") and updated and \
                 datetime.utcnow() - updated > timedelta(minutes=BOT_SETUP_STALE_MIN):
             status, message = "error", "O credenciamento foi interrompido. Tente de novo."
+        # Conta pronta não basta: sem um worker do bot vivo, o pedido fica parado na fila e nada acontece
+        # na tela (2026-11-22: "Teste 002" ficou em pending com o bot fora do ar).
+        if status == "ready" and not self._bot_worker_alive():
+            status, message = "offline", BOT_OFFLINE_MESSAGE
         return {"status": status, "message": message, "vnc_url": get_settings().bot_vnc_url}
+
+    @staticmethod
+    def _bot_worker_alive() -> bool:
+        """Pelo batimento no Redis (ADR-015), que o worker do bot grava no container ou no Mac. Sem
+        leitura do Redis, não bloqueia: o envio segue e a fila espera."""
+        from infrastructure import observability as obs
+        alive = obs.workers()
+        return alive is None or bool(alive.get("bot"))
 
     def request_bot_setup(self) -> dict:
         """Põe o credenciamento na fila do bot. Se já houver um em andamento, só devolve o estado."""
@@ -418,7 +468,10 @@ class Container:
         Sem título, usa o do evento na agenda (se ligada) ou a data."""
         from infrastructure.recorder.platforms import detect_platform, meeting_key
         platform = detect_platform(meeting_url)  # ValueError com mensagem para o usuário
-        if self.bot_status()["status"] != "ready":
+        bot = self.bot_status()
+        if bot["status"] == "offline":
+            raise BotNotReady(bot["message"])
+        if bot["status"] != "ready":
             raise BotNotReady("O bot ainda não foi credenciado. Clique em \"Credenciar bot\" (administrador).")
         key = meeting_key(meeting_url)
         title = (title or "").strip() or self._title_from_calendar(meeting_url) \

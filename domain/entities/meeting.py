@@ -45,6 +45,11 @@ class Summary:
     tasks: list[Task] = field(default_factory=list)
     decisions: list[Decision] = field(default_factory=list)
     created_at: datetime = field(default_factory=datetime.now)
+    # Contrato v2 (S15-4): o que cada um trouxe {"speaker", "points"}, que tópico pesou em que decisão
+    # {"topic", "decision", "effect"} e o que ficou sem resposta. Vazios em resumos anteriores.
+    contributions: list[dict] = field(default_factory=list)
+    topic_decisions: list[dict] = field(default_factory=list)
+    open_questions: list[str] = field(default_factory=list)
 
     @property
     def has_tasks(self) -> bool:
@@ -76,6 +81,19 @@ class Summary:
             lines.append("\n## Decisões Tomadas")
             for decision in self.decisions:
                 lines.append(str(decision))
+
+        if self.topic_decisions:
+            lines.append("\n## Tópicos e decisões")
+            lines += [f"- {t['topic']} → {t['decision']}" + (f" ({t['effect']})" if t.get("effect") else "")
+                      for t in self.topic_decisions]
+
+        if self.contributions:
+            lines.append("\n## Contribuições por participante")
+            lines += [f"- {c['speaker']}: " + "; ".join(c["points"]) for c in self.contributions]
+
+        if self.open_questions:
+            lines.append("\n## Questões em aberto")
+            lines += [f"- {q}" for q in self.open_questions]
 
         return "\n".join(lines)
 

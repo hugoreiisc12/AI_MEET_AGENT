@@ -20,11 +20,25 @@ class DecisionSchema(BaseModel):
                                         "vazio em resumos anteriores ao contrato do agente")
 
 
+class ContributionSchema(BaseModel):
+    speaker: str
+    points: list[str]
+
+
+class TopicDecisionSchema(BaseModel):
+    topic: str
+    decision: str
+    effect: str = ""
+
+
 class SummarySchema(BaseModel):
     overview: str
     topics: list[str]
     tasks: list[TaskSchema]
     decisions: list[DecisionSchema]
+    contributions: list[ContributionSchema] = []
+    topic_decisions: list[TopicDecisionSchema] = []
+    open_questions: list[str] = []
 
 
 class AttachmentSchema(BaseModel):
@@ -109,7 +123,8 @@ class PlatformSchema(BaseModel):
 
 
 class ConfigResponse(BaseModel):
-    login_enabled: bool = Field(description="Falso em APP_MODE=solo: não há usuários")
+    mode: str = Field(description="solo ou collab: modo em que esta API está rodando")
+    login_enabled: bool = Field(description="Sempre verdadeiro: há login nos dois modos (JSON no solo, MongoDB no collab)")
     registration_open: bool
     email_enabled: bool = Field(description="POST /meetings/{id}/tasks/email disponível")
     calendar_enabled: bool = Field(description="Título do bot pode ser omitido: vem da agenda")

@@ -41,6 +41,9 @@ def meeting_from_dict(data: dict) -> Meeting:
                 for d in s.get("decisions") or []
             ],
             created_at=_to_datetime(s.get("created_at")),
+            contributions=s.get("contributions") or [],
+            topic_decisions=s.get("topic_decisions") or [],
+            open_questions=s.get("open_questions") or [],
         )
     return Meeting(
         id=data.get("id") or data["_id"],

@@ -201,3 +201,56 @@ def test_dizer_que_gerou_sem_usar_ferramenta_e_violacao():
     a, model = agent("Gerei o documento Ata em PDF. Baixe pelo botão abaixo.", tool)
     assert a.chat("Gere um PDF", CTX, history=[]).tool == tool
     assert "sem usar a ferramenta" in model.calls[1][-1]["content"]
+
+
+def test_remember_so_quando_o_usuario_pede():
+    note = {"name": "remember", "arguments": {"note": "Definir líder da migração"}}
+    svc, model = agent(note, "Ficou em aberto quem lidera a migração.")
+    reply = svc.chat("O que ficou em aberto nesta reunião?", context=CTX, history=[])
+    assert reply.tool is None and "lidera" in reply.answer and len(model.calls) == 2
+    svc, _ = agent(note)
+    assert svc.chat("Lembre que prefiro atas curtas", context=CTX, history=[]).tool == note
+
+
+def test_origem_da_fala_de_outra_reuniao_confere():
+    ctx = ('REUNIÃO ABERTA (é sobre esta que o usuário pergunta): "Integração", 03/11/2026\n\n'
+           "[00:01] Ana: integração antes do dia 25\n"
+           "[Acompanhamento · 10/11/2026 · 01:40] Ana: Bruno, você fica com a revisão dos contratos da fila.")
+    ok = "[Acompanhamento · 10/11/2026 · 01:40] Ana: Bruno, você fica com a revisão dos contratos da fila."
+    assert check_answer(ok, ctx) == []
+    wrong_meeting = "[Integração · 03/11/2026 · 01:40] Ana: Bruno, você fica com a revisão dos contratos da fila."
+    assert any("não confere" in v for v in check_answer(wrong_meeting, ctx))
+    prose = 'Na reunião "Integração", Ana disse: "Bruno, você fica com a revisão dos contratos da fila."'
+    assert any("mas ela é de" in v for v in check_answer(prose, ctx))
+    assert any("não está no contexto" in v for v in check_answer("Ver [Orçamento · 01/01/2026].", ctx))
+
+
+def test_resumo_v2_grava_contribuicoes_mapa_e_questoes():
+    raw = json.dumps({"overview": "o", "topics": ["fila"], "tasks": [], "decisions": [],
+                      "contributions": [{"speaker": "Bruno", "points": ["propôs a fila"]},
+                                        {"speaker": "Zé Inventado", "points": ["x"]}],
+                      "topic_decisions": [{"topic": "fechamento", "decision": "integração antes do 25", "effect": "prazo"}],
+                      "open_questions": ["Quem revisa os contratos?"]})
+    s = parse_summary(raw, CTX)
+    assert [c["speaker"] for c in s.contributions] == ["Bruno"]  # quem não está na reunião sai
+    assert s.topic_decisions[0]["effect"] == "prazo" and s.open_questions == ["Quem revisa os contratos?"]
+    assert "## Questões em aberto" in s.formatted and "fechamento → integração antes do 25 (prazo)" in s.formatted
+
+
+def test_intencao_da_pergunta():
+    from use_cases.chat_with_meeting import classify_intent
+    assert classify_intent("O que ficou em aberto nesta reunião?") == "pendências"
+    assert classify_intent("A data mudou em relação à reunião anterior?") == "entre reuniões"
+    assert classify_intent("O que você achou da reunião?") == "análise"
+    assert classify_intent("Quem fica com o calendário?") == "fato"
+
+
+def test_data_inventada_reprova():
+    assert any("data 05/12/2026" in v for v in check_answer("A entrega ficou para 05/12/2026.", CTX))
+
+
+def test_reuniao_aberta_citada_pelo_titulo_vale():
+    ctx = ('REUNIÃO ABERTA (é sobre esta que o usuário pergunta): "Acompanhamento", 10/11/2026\n\n'
+           "[01:05] Ana: Então mudamos: a integração entra no dia 28.")
+    assert check_answer("[Acompanhamento · 10/11/2026 · 01:05] Ana: Então mudamos: a integração entra no dia 28.", ctx) == []
+    assert check_answer("[Acompanhamento · 10/11/2026 · 01:05] Bruno: Então mudamos: a integração entra no dia 28.", ctx)

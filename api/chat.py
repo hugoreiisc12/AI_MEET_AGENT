@@ -1,7 +1,10 @@
+import json
+import logging
+import queue
 import threading
 
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 
 from api.schemas.meeting import ChatActionSchema, ChatRequest, ChatResponse
 from api.security import Principal, current_principal, rate_limited
@@ -9,6 +12,7 @@ from config.settings import get_settings
 from presentation.container import get_container
 from use_cases.chat_with_meeting import ChatWithMeetingInput
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 # Chamadas de chat ao LLM ao mesmo tempo, por processo da API (ADR-015). O excedente
 # espera uma vaga; o total entre processos é API_WORKERS × CHAT_MAX_CONCURRENT.
@@ -50,6 +54,55 @@ def chat(meeting_id: str, body: ChatRequest, principal: Principal = Depends(rate
         raise HTTPException(500, result.error_message)
 
     return ChatResponse(answer=result.answer, meeting_id=meeting_id, action=result.action)
+
+
+@router.post("/{meeting_id}/chat/stream", summary="Pergunta, com a resposta aos pedaços (NDJSON)", responses={
+    200: {"content": {"application/x-ndjson": {}}, "description": (
+        'Uma linha JSON por evento: {"delta": "texto"} enquanto o modelo escreve; no fim {"done": ChatResponse} '
+        '(vale o answer do done: se a verificação do contrato reprovar a primeira versão, ele traz a corrigida) '
+        'ou {"error": "mensagem"}.')},
+    404: {"description": "Reunião não existe ou é de outro usuário"},
+    422: {"description": "Reunião ainda não foi transcrita"},
+    429: {"description": "Acima de RATE_LIMIT_PER_MINUTE pedidos por minuto (cabeçalho Retry-After)"},
+    503: {"description": "O LLM está ocupado com outras perguntas; tente de novo"},
+})
+def chat_stream(meeting_id: str, body: ChatRequest, principal: Principal = Depends(rate_limited)):
+    """Mesmo que POST /chat, mas as primeiras palavras aparecem em segundos (S16-2)."""
+    container = get_container()
+    meeting = container.meeting_for(meeting_id, principal.owner_id)
+    if not meeting:
+        raise HTTPException(404, "Reunião não encontrada")
+    if not meeting.is_transcribed:
+        raise HTTPException(422, "Reunião ainda não foi transcrita")
+    history = None if body.history is None else [m.model_dump() for m in body.history]
+    if not _llm_slots.acquire(timeout=_WAIT_S):
+        raise HTTPException(503, "O assistente está ocupado com outras perguntas. Tente de novo em instantes.",
+                            headers={"Retry-After": "30"})
+    events: queue.Queue = queue.Queue()
+
+    def run() -> None:
+        try:
+            result = container.chat_with_meeting.execute(ChatWithMeetingInput(
+                meeting=meeting, question=body.question, history=history,
+                on_delta=lambda text: events.put({"delta": text})))
+            if result.success:
+                done = ChatResponse(answer=result.answer, meeting_id=meeting_id, action=result.action)
+                events.put({"done": done.model_dump(mode="json")})
+            else:
+                events.put({"error": result.error_message})
+        except Exception:
+            logger.exception("[%s] chat em streaming falhou", meeting_id)
+            events.put({"error": "Não foi possível consultar o agente."})
+        finally:
+            _llm_slots.release()
+            events.put(None)
+
+    threading.Thread(target=run, daemon=True).start()
+
+    def lines():
+        while (event := events.get()) is not None:
+            yield json.dumps(event, ensure_ascii=False) + "\n"
+    return StreamingResponse(lines(), media_type="application/x-ndjson")
 
 
 @router.delete("/{meeting_id}/chat", status_code=204, summary="Limpa a conversa da reunião",

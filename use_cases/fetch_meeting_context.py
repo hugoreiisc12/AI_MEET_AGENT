@@ -22,7 +22,7 @@ class FetchMeetingContextUC:
     título e participantes de uma reunião antes de processá-la.
 
     O campo 'event' retornado pode ser usado para:
-      - Pré-preencher o título no Streamlit
+      - Pré-preencher o título na interface
       - Popular a lista de participantes
       - Identificar o tipo de reunião pelo título (planning, retro, etc.)
     """

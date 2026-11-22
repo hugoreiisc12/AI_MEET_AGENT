@@ -87,4 +87,15 @@ def _merge(partials: list[Summary]) -> Summary:
         topics=list(dict.fromkeys(t for p in partials for t in p.topics)),
         tasks=[t for p in partials for t in p.tasks],
         decisions=[d for p in partials for d in p.decisions],
+        contributions=_merge_contributions(partials),
+        topic_decisions=[t for p in partials for t in p.topic_decisions],
+        open_questions=list(dict.fromkeys(q for p in partials for q in p.open_questions)),
     )
+
+
+def _merge_contributions(partials: list[Summary]) -> list[dict]:
+    by_speaker: dict[str, list[str]] = {}
+    for p in partials:
+        for c in p.contributions:
+            by_speaker.setdefault(c["speaker"], []).extend(c["points"])
+    return [{"speaker": s, "points": points} for s, points in by_speaker.items()]

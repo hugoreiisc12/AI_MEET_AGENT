@@ -113,8 +113,9 @@ def config():
     """O front lê uma vez na partida para montar as telas (cadastro aberto? e-mail ligado? quais plataformas?)."""
     s = get_settings()
     return ConfigResponse(
-        login_enabled=s.is_collab,
-        registration_open=s.is_collab and s.allow_registration,
+        mode=s.app_mode.value,
+        login_enabled=True,
+        registration_open=s.allow_registration,
         email_enabled=s.email_enabled,
         calendar_enabled=s.enable_calendar,
         max_upload_mb=s.max_upload_mb,

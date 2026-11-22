@@ -65,7 +65,6 @@ class ProjectValidator:
             "infrastructure/calendar",
             "use_cases",
             "presentation",
-            "presentation/streamlit",
             "api",
             "api/routers",
             "api/schemas",
@@ -138,7 +137,6 @@ class ProjectValidator:
 
             # Presentation
             "presentation/container.py",
-            "presentation/streamlit/app.py",
 
             # API
             "api/main.py",

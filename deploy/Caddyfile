@@ -2,13 +2,13 @@
 # DOMAIN vem do .env; o DNS de DOMAIN e de api.DOMAIN precisa apontar para o servidor, com as
 # portas 80 e 443 abertas, antes de subir (é assim que o certificado é emitido).
 
-# Interface (Streamlit). O Caddy repassa o WebSocket do Streamlit sem configuração extra.
+# Interface nova (container web). Ela mesma repassa /api para a FastAPI, na mesma origem.
 {$DOMAIN} {
 	encode gzip
-	reverse_proxy streamlit:8501
+	reverse_proxy web:80
 }
 
-# API (e o contrato em /docs) para o front novo.
+# API direta (contrato em /docs) para integrações e scripts com X-API-Key.
 api.{$DOMAIN} {
 	encode gzip
 	reverse_proxy api:8000

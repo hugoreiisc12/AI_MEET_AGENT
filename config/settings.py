@@ -17,6 +17,8 @@ class Settings(BaseSettings):
     # ── OpenAI ───────────────────────────────────────────────────────
     openai_api_key: str = ""
     openai_model: str = "gpt-4o"
+    # Qualquer servidor compatível com a API da OpenAI (vLLM, LM Studio, Groq...); vazio = OpenAI.
+    openai_base_url: str = ""
     whisper_model: str = "whisper-1"        # usado pelo WhisperTranscriber (API)
     whisper_language: str = "pt"
 
@@ -39,7 +41,7 @@ class Settings(BaseSettings):
     # ── Cache e API ───────────────────────────────────────────────────
     redis_url: str = "redis://localhost:6379/0"
     api_port: int = 8000
-    allowed_origins: list[str] = Field(default=["http://localhost:8501"])
+    allowed_origins: list[str] = Field(default=["http://localhost:8080", "http://localhost:5173"])
     # Chave exigida no cabeçalho X-API-Key (ADR-007). Obrigatória em collab.
     api_key: str = ""
     # Login de usuários (ADR-011)
@@ -72,11 +74,28 @@ class Settings(BaseSettings):
     llm_provider: str = "openai"            # "openai" | "ollama" | "openrouter"
     # Contrato do agente (ADR-014): vai inteiro no prompt de sistema do chat e do resumo.
     agent_contract_path: str = "SPEC_CONTRACT.md"
+    # Memória do agente e contrato v2 (ADR-022). false volta ao comportamento da v1.0: contrato v1, sem
+    # índice de trechos, sem falas de outras reuniões, sem cache de respostas.
+    memory_v2: bool = True
+    agent_contract_v2_path: str = "SPEC_CONTRACT_V2.md"          # resumo
+    agent_chat_contract_path: str = "SPEC_CONTRACT_CHAT_V2.md"   # chat (compacto, ~2,2 mil tokens)
 
     # Quanto de transcrição cabe num único pedido ao LLM (caracteres; ~2,6 por
     # token em português, medido na ADR-010). Acima disso o resumo é feito em
     # partes e o chat recebe só os trechos relevantes.
     llm_context_chars: int = 30000
+
+    # Perfil do modelo (ADR-022): o mesmo grafo serve qualquer provider. 0 = janela padrão do
+    # provider (OLLAMA_NUM_CTX_MAX no Ollama, 128k nos hospedados). Sem ferramenta nativa, as
+    # ferramentas vão por JSON; sem modo JSON, o JSON é pedido no texto.
+    llm_context_tokens: int = 0
+    llm_native_tools: bool = True
+    llm_json_mode: bool = True
+
+    # Embeddings da memória do agente (ADR-022). "onnx" roda no próprio processo, igual em
+    # Linux, macOS e Windows, sem serviço externo. Trocar de modelo exige reindexar.
+    embedding_provider: str = "onnx"        # "onnx" | "ollama" | "openai"
+    embedding_model: str = "intfloat/multilingual-e5-small"
 
     # Ollama (local)
     # Teto da janela pedida ao Ollama; o padrão dele (4096) corta reuniões em silêncio.
@@ -161,7 +180,7 @@ class Settings(BaseSettings):
             missing.append("API_KEY")
         if not self.use_local_whisper and not self.openai_api_key:
             missing.append("OPENAI_API_KEY (ou WHISPER_TRANSCRIBER=local)")
-        if self.llm_provider == "openai" and not self.openai_api_key:
+        if self.llm_provider == "openai" and not self.openai_api_key and not self.openai_base_url:
             missing.append("OPENAI_API_KEY (LLM_PROVIDER=openai)")
         if self.llm_provider == "openrouter" and not self.openrouter_api_key:
             missing.append("OPENROUTER_API_KEY")

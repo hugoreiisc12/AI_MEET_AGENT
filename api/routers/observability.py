@@ -66,6 +66,19 @@ def _latencies() -> dict[str, dict]:
     return out
 
 
+def _agent_memory(counters: dict[str, float], latencies: dict[str, dict]) -> dict:
+    """Caminho das respostas do chat (ADR-022, S14-4): cache (CAG), quente (trechos na memória) ou
+    banco (índice lido do disco ou refeito). Taxa de acerto do cache e p50/p95 por caminho."""
+    answers = _totals(counters, "chat_answers_total", "path")
+    total = sum(answers.values())
+    return {
+        "answers_by_path": answers,
+        "cache_hit_rate": round(answers.get("cache", 0) / total, 3) if total else None,
+        "latency_by_path": {p: latencies[f"chat_seconds|path={p}"] for p in ("cache", "quente", "banco")
+                            if f"chat_seconds|path={p}" in latencies},
+    }
+
+
 def _totals(counters: dict[str, float], name: str, by: str) -> dict[str, float]:
     out: dict[str, float] = defaultdict(float)
     for key, value in counters.items():
@@ -109,7 +122,8 @@ def summary(_: Principal = Depends(require_admin)):
                                                    "emails_total", "kind").items()},
         "documents": _totals(counters, "documents_total", "format"),
         "llm_errors": _totals(counters, "llm_errors_total", "kind"),
-        "latencies_seconds": _latencies(),
+        "latencies_seconds": (latencies := _latencies()),
+        "agent_memory": _agent_memory(counters, latencies),
         "disk": {"free_gb": round(disk.free / 1e9, 1), "used_pct": round(disk.used / disk.total * 100, 1)},
     }
 
@@ -157,7 +171,7 @@ def metrics(_: Principal = Depends(require_admin)):
 
 
 @router.get("/logs", summary="Logs de todos os serviços")
-def logs(meeting_id: str = "", service: str = Query("", description="api, worker-transcribe, worker-llm, bot, streamlit"),
+def logs(meeting_id: str = "", service: str = Query("", description="api, worker-transcribe, worker-llm, bot"),
          level: str = Query("", description="nível mínimo: INFO, WARNING, ERROR"),
          q: str = Query("", description="texto contido na mensagem"),
          limit: int = Query(200, ge=1, le=2000), _: Principal = Depends(require_admin)):

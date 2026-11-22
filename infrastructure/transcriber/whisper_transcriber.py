@@ -9,6 +9,8 @@ Implementação de ITranscriber para transcrição via OpenAI API e local (faste
 from __future__ import annotations
 
 from pathlib import Path
+
+from infrastructure.transcriber.live_transcript import PartialWriter
 from typing import Optional
 
 import numpy as np
@@ -214,7 +216,9 @@ class WhisperLocalTranscriber(ITranscriber):
             )
 
             raw_segments = []
+            partial = PartialWriter(audio_path)
             for seg in segments:
+                partial.append(seg.start, seg.end, seg.text.strip())
                 words_list = []
                 for w in (seg.words or []):
                     words_list.append({
@@ -234,6 +238,7 @@ class WhisperLocalTranscriber(ITranscriber):
                     "words": words_list,
                 })
 
+            partial.close()
             clean_segments = filter_segments(raw_segments)
 
             if diarization:

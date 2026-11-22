@@ -3,7 +3,7 @@
 #   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build --remove-orphans
 #
 # Exige DOMAIN no .env (ex.: DOMAIN=reunioes.exemplo.com) e o DNS de DOMAIN e api.DOMAIN
-# apontando para o servidor. Só as portas 80 e 443 ficam abertas: API, Streamlit, Mongo e Redis
+# apontando para o servidor. Só as portas 80 e 443 ficam abertas: interface, API, Mongo e Redis
 # deixam de ser publicados no host e só são alcançados pela rede interna do compose.
 # Consequência: o worker do bot no host deixa de alcançar o Redis; em produção o bot roda em
 # container (S10-1, ADR-016).
@@ -23,7 +23,7 @@ services:
       - caddy_config:/config
     depends_on:
       - api
-      - streamlit
+      - web
     restart: unless-stopped
 
   api:
@@ -31,7 +31,7 @@ services:
     environment:
       ALLOWED_ORIGINS: '["https://${DOMAIN}"]'
 
-  streamlit:
+  web:
     ports: !reset []
 
   mongo:

@@ -9,7 +9,7 @@ foi verificado no repositório em 2026-11-15; o resto só se confere na implanta
 | 2 | `.env` do servidor só legível pelo dono | `chmod 600 .env` | Servidor |
 | 3 | `API_KEY` nova, gerada no servidor, diferente da de desenvolvimento | Roteiro em `docs/operacao.md` | Servidor |
 | 4 | Cadastro fechado depois de criar as contas | `ALLOW_REGISTRATION=false`; `GET /config` com `registration_open: false` | Servidor |
-| 5 | Só 80 e 443 abertos; Mongo, Redis, API e Streamlit sem porta no host | `docker-compose.prod.yml` (`ports: !reset []`); `ss -tlnp` no servidor | Compose conferido (`config`); servidor |
+| 5 | Só 80 e 443 abertos; Mongo, Redis, API e interface (`web`) sem porta no host | `docker-compose.prod.yml` (`ports: !reset []`); `ss -tlnp` no servidor | Compose conferido (`config`); servidor |
 | 6 | HTTPS com certificado válido em `DOMAIN` e `api.DOMAIN` | Abrir no navegador; `curl -I http://...` redireciona para https | Servidor |
 | 7 | Cookie de sessão com `Secure` | No navegador: DevTools → Application → Cookies → `meet_agent_session` | Automático sob HTTPS; conferir no servidor |
 | 8 | CORS só para o domínio da interface | `ALLOWED_ORIGINS` vem do `DOMAIN` no compose de produção | Compose conferido |
@@ -19,13 +19,15 @@ foi verificado no repositório em 2026-11-15; o resto só se confere na implanta
 | 12 | Alerta de API fora do ar chegando | Parar `worker-llm` e esperar o e-mail do `health_alert` | Servidor |
 | 13 | Conta do bot exclusiva para o bot (não a conta pessoal de ninguém) | O perfil do Chrome do bot fica em volume/pasta própria | Servidor |
 | 14 | SMTP com senha de app, não a senha da conta | Gmail: myaccount.google.com/apppasswords | Servidor |
+| 16 | Índice da memória do agente (`data/index`: trechos da transcrição e entidades) com o mesmo cuidado das reuniões | Fica no volume `./data` (backup junto); separado por dono; sai junto quando a reunião é apagada (`test/test_meeting_index.py`) | Conferido (testes) |
 | 15 | `BOT_GOOGLE_PASSWORD` só se o login automático do bot for usado; conta do bot sem dados pessoais | Preferir o login pela tela do bot (noVNC) e deixar a senha fora do `.env` | Servidor |
 
 Riscos aceitos, registrados para revisão:
-- O cookie de sessão é gravado por JavaScript, então não tem `HttpOnly` (o Streamlit não permite
-  `Set-Cookie` do servidor). Um XSS na interface poderia ler o token. Isso é mitigado pela
-  interface não exibir HTML vindo de usuários e por o token ser revogável em "Minha conta". Some
-  quando o front novo (ADR-013) assumir.
+- A interface nova guarda o token da sessão no `localStorage` do navegador (envia como
+  `Authorization: Bearer`), então ele não tem `HttpOnly`. Um XSS poderia ler o token. Mitigação:
+  o React escapa o texto (nenhum HTML vindo de usuários é inserido na página), o token é revogável
+  em "Minha conta" → Sessões abertas, e expira em `SESSION_DAYS`. Para eliminar o risco, trocar
+  por cookie `HttpOnly` emitido pela API.
 - A chave de serviço (`X-API-Key`) enxerga todas as reuniões. Use só em scripts do próprio servidor.
 
 Assinatura: ______________________  Data: ____/____/______

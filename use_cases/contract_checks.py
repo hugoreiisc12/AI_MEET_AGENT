@@ -25,6 +25,13 @@ _ATTRIBUTION = re.compile(
 # Linha da transcrição reproduzida na resposta: "[01:45] Bruno: texto".
 _LINE = re.compile(r"\[(\d{1,2}:\d{2}(?::\d{2})?)\]\s*([^:\]\n]{1,60}):\s*([^\n]+)")
 _LINE_WORDS = 5
+# §20: fala ou item de outra reunião, "[Título · dd/mm/aaaa · hh:mm] Nome: texto" ou "[Título · dd/mm/aaaa]".
+_CROSS = re.compile(r"\[([^\]\n·]{2,120}?)\s*·\s*(\d{2}/\d{2}/\d{4})(?:\s*·\s*(\d{1,2}:\d{2}(?::\d{2})?))?\]"
+                    r"(?:\s*([^:\]\n]{1,60}):\s*([^\n]+))?")
+_CROSS_HEAD = re.compile(r"^\[([^\]\n·]+?) · \d{2}/\d{2}/\d{4}", re.MULTILINE)
+_DATE = re.compile(r"\b\d{2}/\d{2}/\d{4}\b")
+_ANY_QUOTE = re.compile(r"(?=[\"“]([^\"“”«»]{12,400})[\"”»])")
+_OPEN_TITLE = re.compile(r"REUNIÃO ABERTA[^\n]*?: \"([^\"\n]+)\"")
 _NOT_NAMES = {"Ninguém", "Alguém", "Ele", "Ela", "Eles", "Elas", "Você", "Isso", "Isto", "Quem", "Nenhum",
               "Nenhuma", "Todos", "Todas", "Cada", "Também", "Ainda", "Já", "Não", "Como", "Quando", "Mas", "E",
               "O", "A", "Os", "As", "Um", "Uma", "Que", "Se", "Participante", "Transcrição", "Reunião"}
@@ -74,12 +81,58 @@ def check_answer(answer: str, context: str, question: str = "") -> list[str]:
         if len(words) >= 3 and _normalize(f"{ts} {speaker}") + " " + " ".join(words) not in ctx:
             violations.append(f"trecho [{ts}] {speaker.strip()} não confere com a transcrição (horário, autor ou texto)")
 
+    violations += _check_sources(answer, context, ctx)
+    for date in dict.fromkeys(_DATE.findall(answer)):  # §20: data que não está no contexto é inventada
+        if date not in context:
+            violations.append(f"cita a data {date}, que não está no contexto")
+
     ctx_low = context.lower()
     for m in _ATTRIBUTION.finditer(answer):
         name = m.group(1) or m.group(2)
         if name not in _NOT_NAMES and name.lower() not in ctx_low:
             violations.append(f"atribui fala a \"{name}\", que não aparece na reunião")
     return list(dict.fromkeys(violations))
+
+
+def _check_sources(answer: str, context: str, ctx: str) -> list[str]:
+    """§20: a origem citada precisa ser a do contexto. Pega o modelo trocando a reunião de uma fala
+    (eval de 2026-11-21: fala de "Acompanhamento", 10/11, citada como da reunião aberta, 03/11)."""
+    violations = []
+    opened = _OPEN_TITLE.search(context)
+    own_lines = [l for l in context.splitlines() if _LINE.match(l.strip()) and not _CROSS_HEAD.match(l)]
+    for title, date, ts, speaker, text in _CROSS.findall(answer):
+        head = _normalize(f"{title} {date}")
+        if ts and speaker:
+            words = " ".join(_normalize(text).split()[:_LINE_WORDS])
+            line = f"{_normalize(ts)} {_normalize(speaker)} {words}"
+            # A reunião aberta citada pelo título: a fala está no contexto como "[hh:mm] Nome:".
+            own = (opened and title.strip() == opened.group(1).strip() and head in ctx
+                   and any(_normalize(l).startswith(line) for l in own_lines))
+            if not own and f"{head} {line}" not in ctx:
+                violations.append(f"fala citada como de [{title.strip()} · {date} · {ts}] {speaker.strip()} não "
+                                  "confere com o contexto (reunião, horário, autor ou texto)")
+        elif head not in ctx:
+            violations.append(f"cita a reunião [{title.strip()} · {date}], que não está no contexto")
+
+    titles = {t.strip() for t in _CROSS_HEAD.findall(context)} | ({opened.group(1)} if opened else set())
+    if len(titles) < 2:
+        return violations
+    lines = context.splitlines()
+    for m in _ANY_QUOTE.finditer(answer):  # cada aspa de abertura: "Título", Fulano disse: "fala"
+        quote = _normalize(m.group(1))
+        if len(quote.split()) < _MIN_QUOTE_WORDS:
+            continue
+        origins = set()
+        for line in lines:
+            if quote in _normalize(line):
+                head = _CROSS_HEAD.match(line)
+                origins.add(head.group(1).strip() if head else (opened.group(1) if opened else ""))
+        before = answer[max(0, m.start() - 300):m.start()].lower()
+        named = [t for t in titles if t.lower() in before]
+        if origins and named and not origins & set(named):
+            violations.append(f"atribui a fala \"{m.group(1)[:60]}\" à reunião \"{named[-1]}\", mas ela é de "
+                              f"\"{sorted(origins)[0]}\"")
+    return violations
 
 
 DECISION_STATUSES = ("aprovada", "condicionada", "proposta", "pendente", "rejeitada", "inconclusiva")

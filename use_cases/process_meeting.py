@@ -34,7 +34,9 @@ class ProcessMeetingUC:
         summarize_uc: SummarizeMeetingUC,
         repository: IMeetingRepository,
         load_speaker_events: Optional[Callable[[str], SpeakerEvents]] = None,
+        indexer=None,
     ) -> None:
+        self._indexer = indexer  # memória do agente (ADR-022): trechos e entidades da reunião pronta
         self._transcribe = transcribe_uc
         self._summarize = summarize_uc
         self._repo = repository
@@ -117,6 +119,8 @@ class ProcessMeetingUC:
         meeting.metrics["summarize_s"] = round(time.monotonic() - t1, 1)
         logger.info("[%s] medições: %s", meeting.id, meeting.metrics)
         self._set(meeting, MeetingStatus.DONE)
+        if self._indexer:
+            self._indexer.index(meeting)  # não falha: sem índice, o chat busca por palavra
         return meeting
 
     def _set(self, meeting: Meeting, status: MeetingStatus) -> None:

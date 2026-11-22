@@ -24,7 +24,7 @@ MAX_NOTES = 30
 
 @dataclass
 class MemoryItem:
-    kind: str           # "decisão" | "tarefa aberta"
+    kind: str           # "decisão" | "tarefa aberta" | "questão em aberto"
     text: str
     meeting: Meeting
 
@@ -42,10 +42,12 @@ def _items(meeting: Meeting) -> list[MemoryItem]:
     items += [MemoryItem("tarefa aberta", f"{t.description} — responsável: {t.responsible}"
                          + (f" — prazo: {t.deadline}" if t.deadline else ""), meeting)
               for t in meeting.summary.tasks if not t.done]
+    items += [MemoryItem("questão em aberto", q, meeting) for q in meeting.summary.open_questions]
     return items
 
 
-def build_memory(current: Meeting, others: list[Meeting], notes: list[dict], question: str) -> str:
+def build_memory(current: Meeting, others: list[Meeting], notes: list[dict], question: str,
+                 max_chars: int = MAX_CHARS) -> str:
     """Bloco de memória para o contexto do chat. Vazio se não há nada para lembrar."""
     parts = []
     if notes:
@@ -62,7 +64,7 @@ def build_memory(current: Meeting, others: list[Meeting], notes: list[dict], que
             continue
         for item in _items(m):
             overlap = len(wanted & _words(item.text))
-            if overlap or item.kind == "tarefa aberta":
+            if overlap or item.kind in ("tarefa aberta", "questão em aberto"):
                 scored.append((overlap, m.started_at, item))
     # Mais palavras em comum primeiro; empate, a mais recente. Tarefas abertas sem assunto em
     # comum ficam limitadas, para não encher o contexto com pendência de outro projeto.
@@ -74,7 +76,7 @@ def build_memory(current: Meeting, others: list[Meeting], notes: list[dict], que
                 continue
             loose_tasks += 1
         line = item.line(current)
-        if size + len(line) > MAX_CHARS:
+        if size + len(line) > max_chars:
             break
         lines.append(line)
         size += len(line)

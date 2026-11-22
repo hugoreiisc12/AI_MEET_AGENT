@@ -15,8 +15,8 @@ class FakeLLM:
         n = len(self.summarized)
         return Summary(overview=f"visão {n}", topics=["comum", f"tópico {n}"], tasks=[Task(f"tarefa {n}")])
 
-    def chat(self, question, context, history, **_):
-        self.chats.append({"question": question, "context": context, "history": history})
+    def chat(self, question, context, history, question_context="", **_):
+        self.chats.append({"question": question, "context": context + question_context, "history": history})
         return "resposta"
 
 

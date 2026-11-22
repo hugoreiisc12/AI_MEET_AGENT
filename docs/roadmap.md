@@ -302,6 +302,117 @@ do bot (corrida que a API em 2 processos tornou provável), testada entre proces
 
 Saída: v1.0.0 no ar, com usuários reais gravando reuniões.
 
+## Feature: memória e contexto do agente (ADR-022) — Sprints 12 a 16
+
+Objetivo: o agente não perde contexto em reuniões longas, liga reuniões diferentes pelo mesmo tópico e
+pelas mesmas pessoas, responde de forma didática, cita de onde tirou cada fato e pergunta o que ficou em
+aberto. Funciona igual em qualquer provider com pelo menos a capacidade do modelo atual
+(`qwen2.5:7b`, 32k de janela): trocar de provider é `.env`, não código.
+
+Portão de qualidade de todas as sprints: `scripts/eval_agent` ampliado (S12-4), rodado no modelo piso.
+Uma sprint só fecha se não piorar nenhuma nota da anterior e se a latência ficar dentro do teto anotado.
+Tudo atrás da flag `MEMORY_V2` até a Sprint 16.
+
+## Sprint 12 — Harness adaptável e linha de base
+
+**Andamento (2026-11-21):** ADR-022 aceita. S12-3 entregue: porta `IEmbedder` (`domain/interfaces/embedder.py`),
+ONNX no processo como padrão (`infrastructure/embeddings/`), adaptadores Ollama e OpenAI, sem dependência
+nova; paráfrase em português conferida com o modelo real e medições na ADR-022.
+S12-1, S12-2 e S12-5 entregues: `ModelProfile` lido do `.env` (`LLM_CONTEXT_TOKENS`, `LLM_NATIVE_TOOLS`,
+`LLM_JSON_MODE`, `OPENAI_BASE_URL` para qualquer servidor compatível); ferramentas por JSON quando o modelo
+não tem chamada nativa; `ContextBudget` com o que é da pergunta (trechos, outras reuniões, notas) na
+mensagem dela, para o prompt de sistema não mudar entre perguntas. S12-4: `eval_agent` v2 com três
+reuniões ligadas; linha de base em `docs/eval/linha-de-base.md`.
+
+| Id | Tipo | Tarefa | Pronto quando |
+|----|------|--------|---------------|
+| S12-1 | feat | `ModelProfile` por provider/modelo (janela, ferramenta nativa, modo JSON, embeddings), lido do `.env`; `ModelClient` decide pelo perfil | Ollama, OpenAI e OpenRouter rodam o mesmo grafo só trocando o `.env` |
+| S12-2 | feat | Saída estruturada validada por esquema, com uma tentativa de reparo; ferramenta por JSON quando não há chamada nativa | Resumo e ferramentas passam no modelo piso sem regressão no `eval_agent` |
+| S12-3 | feat | Porta `IEmbedder`; padrão ONNX no processo (`intfloat/multilingual-e5-small`, igual em Linux, macOS e Windows), adaptadores Ollama e OpenAI; vetor guarda o nome do modelo | Similaridade em português conferida com o modelo real; memória e tempo no M4 16 GB anotados na ADR-022 |
+| S12-4 | test | `eval_agent` v2: 3 reuniões sintéticas ligadas (mesmas pessoas e tópicos), perguntas de continuidade, citação, didática e pergunta em aberto; mede acerto e latência | Linha de base gravada em `docs/` para o modelo piso |
+| S12-5 | feat | `ContextBudget`: blocos com teto (contrato, procedural, reunião, longa, curta, pergunta, resposta), prefixo estável primeiro | Prompt montado pelo orçamento; cache de prefixo do Ollama mantido entre perguntas (medido) |
+
+Saída: mesma qualidade de hoje no modelo piso, provider trocável por configuração, linha de base medida.
+
+## Sprint 13 — Memória curta e memória longa
+
+**Andamento (2026-11-21):** S13-1 a S13-5 entregues. Trechos por fala com vetor em `data/index`
+(`use_cases/meeting_index.py`, `infrastructure/index_store.py`), indexados ao fim do resumo e refeitos se a
+transcrição mudar; `scripts/reindex_memory`. Busca híbrida (palavra + vetor por RRF) no chat de reunião longa,
+com volta à busca por palavra se o índice falhar: a paráfrase do eval (2 h, ~96 mil caracteres) é achada pela
+híbrida e não pela palavra. Entidades por dono (pessoas com apelidos; tópicos pelo limiar 0,93 calibrado no
+e5-small). Memória curta: até 40 trocas na íntegra pelo orçamento da janela, o resto em resumo corrido que
+preserva as mensagens do usuário. Isolamento por dono e exclusão junto com a reunião testados.
+
+| Id | Tipo | Tarefa | Pronto quando |
+|----|------|--------|---------------|
+| S13-1 | feat | Trechos por fala (orador, horário, sobreposição) com embedding, gravados ao fim da transcrição (`chunks`, por dono) | Reunião nova indexada sozinha; script de reindexação para as antigas |
+| S13-2 | feat | Entidades e menções a partir do resumo: pessoas (com apelidos), tópicos (agrupados por similaridade), decisões e tarefas | Mesma pessoa/tópico em duas reuniões aparece como a mesma entidade no teste |
+| S13-3 | feat | Busca híbrida (palavra + vetor) dentro da reunião aberta, no lugar de `select_relevant` | Pergunta parafraseada acha o trecho certo em reunião de 2 h (caso no eval) |
+| S13-4 | feat | Memória curta: últimos turnos na íntegra + resumo corrido dos anteriores dentro do teto | Conversa de 40 perguntas não estoura a janela nem esquece o que foi combinado no início |
+| S13-5 | test | Isolamento: índice nunca devolve trecho de outro dono | Teste de dois usuários verde |
+
+Saída: reuniões longas sem perda de contexto no chat; entidades ligando reuniões.
+
+## Sprint 14 — RAG entre reuniões e CAG
+
+**Andamento (2026-11-21):** S14-1 a S14-5 entregues. Falas de outras reuniões do dono entram com a citação
+`[Título · data · horário]`, ordenadas por relevância (palavra + vetor), reuniões ligadas por entidade e
+recência (`MeetingIndex.search_many`). Ferramenta `search_meetings` com uma rodada só (sem laço). CAG:
+respostas por pergunta normalizada, escopo dono + geração (`use_cases/agent_cache.py`), invalidadas por
+qualquer gravação de reunião ou nota do dono; camada quente dos índices na memória do processo, validada pela
+data do arquivo; Redis no collab, processo no solo (`infrastructure/hot_cache.py`). Caminho de cada resposta
+(cache, quente, banco) com p50/p95 no painel de Observabilidade (só no collab, onde há Redis para as métricas).
+
+| Id | Tipo | Tarefa | Pronto quando |
+|----|------|--------|---------------|
+| S14-1 | feat | Recuperação entre reuniões do dono: trechos + expansão por entidades, ordem por relevância, recência e estado da decisão; resposta cita título, data e horário | Perguntas de continuidade do eval respondidas com citação correta |
+| S14-2 | feat | Ferramenta `search_meetings` para o agente aprofundar a busca quando o contexto não bastar | Agente usa a ferramenta nos casos do eval que pedem outra reunião |
+| S14-3 | feat | CAG: camada quente com os dados recém-gerados (Redis no collab, processo no solo), escrita junto com o banco; cache de respostas por pergunta equivalente no mesmo escopo; invalidação por reunião nova, resumo ou tarefa alterados | Pergunta repetida volta do cache; dado novo invalida; teste de invalidação verde |
+| S14-4 | feat | Roteador CAG → trechos quentes → RAG no banco, com métricas (acerto do cache, latência por caminho) na Observabilidade | Painel mostra taxa de acerto e p50/p95 por caminho |
+| S14-5 | test | Isolamento por dono também no cache | Teste de dois usuários verde |
+
+Saída: perguntas entre reuniões respondidas com fonte; resposta repetida sem ir ao banco.
+
+## Sprint 15 — Memória procedural e contrato v2 (agente didático)
+
+**Andamento (2026-11-22):** S15-1 a S15-5 entregues. Contrato v2 aprovado e ligado pela flag `MEMORY_V2`
+(chat com o compacto; resumo com o completo, ou o compacto em janela abaixo de 16k). Notas do usuário no prefixo
+estável; intenção da pergunta (fato, entre reuniões, análise, pendências) sem chamar o modelo; verificação de
+origem das citações e de datas fora do contexto; resumo com contribuições por orador, tópico → decisão e
+questões em aberto (inspetor de Gravações); citações clicáveis que abrem a reunião no trecho e "Perguntas para
+você" como botões (conferido no navegador). Eval 19/22 em `docs/eval/sprint-15.md`.
+
+**Andamento (2026-11-21):** S15-2 escrito, aguardando revisão do dono do contrato: `SPEC_CONTRACT_V2.md`
+(completo, para o resumo; numeração do v1 mantida, §19 e §20 novos) e `SPEC_CONTRACT_CHAT_V2.md`
+(compacto, ~2,2 mil tokens contra ~8,3 mil do atual). Ainda não ligados ao agente: entram na S15-3 com o
+`eval_agent`. Invariantes em `test/test_contract_v2.py`.
+
+| Id | Tipo | Tarefa | Pronto quando |
+|----|------|--------|---------------|
+| S15-1 | feat | Memória procedural: notas de `remember`, preferências de formato e glossário da organização, no prefixo estável; gerência em Minha conta | Preferência gravada muda o formato das próximas respostas (eval) |
+| S15-2 | docs | Contrato v2 (SPEC): receptividade e didática, análise por fala, mapa tópico → decisão, perguntas sobre o que ficou em aberto, regras de citação; versão compacta para o chat | Aceite do dono do contrato; contrato do chat cabe no teto do bloco |
+| S15-3 | feat | Grafo do chat: classificar a intenção (fato, entre reuniões, análise, pendências) → recuperar (CAG/RAG) → responder → verificar → perguntar ao usuário quando faltar informação | Verificação reprova afirmação sem fonte; pergunta de esclarecimento nos casos ambíguos do eval |
+| S15-4 | feat | Resumo passa a gravar contribuições por orador, mapa tópico → decisão e questões em aberto (alimentam a memória longa) | Campos novos no resumo e no inspetor de Gravações |
+| S15-5 | feat | Interface: citações clicáveis (reunião e horário) e perguntas do agente no chat do Estúdio e de Gravações | Clique na citação abre a reunião no trecho |
+
+Saída: respostas didáticas, com fonte, que apontam o que falta decidir.
+
+## Sprint 16 — Portabilidade, desempenho e entrega
+
+**Andamento (2026-11-22):** S16-1 a S16-4 entregues, com dois limites: na matriz, o modelo local maior e o
+por API não foram medidos (sem disco, sem chave); a reindexação "em produção" (S16-3) fica para quando os
+containers forem reconstruídos (disco). Streaming no chat de Gravações; medições e desvios na ADR-022.
+
+| Id | Tipo | Tarefa | Pronto quando |
+|----|------|--------|---------------|
+| S16-1 | test | Matriz de providers com o mesmo harness: modelo piso local, um modelo local maior e um por API | Notas do eval por modelo registradas, sem mudança de código entre eles |
+| S16-2 | perf | Memória e tempo no M4 16 GB (LLM + embeddings + Whisper), resposta em streaming (proposta da ADR-021) | Primeiras palavras em segundos; sem swap novo além do medido na S12-3 |
+| S16-3 | chore | Reindexação das reuniões existentes em produção, flag `MEMORY_V2` ligada, operação documentada (reindexar, limpar cache) | `docs/operacao.md` atualizado; flag ligada sem regressão |
+| S16-4 | docs | ADR-022 aceita com "Como ficou" e desvios; notas de versão | CHANGELOG com a versão |
+
+Saída: versão com a memória nova ligada em produção.
+
 ## Depois da 1.0
 
 - Discord por bot oficial (era S6-6; ADR-012).

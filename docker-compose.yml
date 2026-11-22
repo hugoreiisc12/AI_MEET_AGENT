@@ -1,14 +1,16 @@
 # Meet Agent — produção local (APP_MODE=collab).
 #
-#   docker compose up -d --build --remove-orphans → mongo, redis, api, workers (transcribe, llm), streamlit
+#   docker compose up -d --build --remove-orphans → constrói api e web e sobe tudo: mongo, redis, api,
+#     workers (transcribe, llm), web e a indexação da memória do agente (memory-index, roda e termina)
 #   python main.py --bot-worker           → no host: o bot usa o Chromium e o login do Google locais
 #
-# Portas no host: API 8001, Streamlit 8501, Redis 6380, Mongo 27018
+# Portas no host: interface 8080, API 8001, Redis 6380, Mongo 27018
 # (fora das portas padrão para não colidir com serviços já instalados na máquina).
-# Na rede local: interface e API abertas (http://<ip-desta-máquina>:8501 de outro aparelho);
+# Na rede local: interface e API abertas (http://<ip-desta-máquina>:8080 de outro aparelho);
 # Mongo, Redis e o noVNC do bot só nesta máquina (127.0.0.1): não têm senha.
 
-# A imagem é construída uma vez, pelo serviço api; worker e streamlit a reutilizam.
+# A imagem Python é construída uma vez, pelo serviço api; os workers a reutilizam.
+# A interface (web) tem imagem própria, em frontend/Dockerfile.
 # Com `build` nos três, o compose exportava a mesma imagem três vezes em paralelo e
 # enchia o disco do Docker (2026-11-15).
 x-app: &app
@@ -58,13 +60,30 @@ services:
     <<: *app
     command: python main.py --worker llm
 
-  streamlit:
+  # Memória do agente (ADR-022): a cada `up`, indexa as reuniões que ainda não têm índice (ou cuja
+  # transcrição mudou) e termina. Reunião já indexada é pulada; reunião nova o worker-llm indexa sozinho.
+  # Na primeira vez baixa o modelo de embeddings (~470 MB) para o volume model_cache.
+  memory-index:
     <<: *app
-    command: >
-      streamlit run presentation/streamlit/app.py
-      --server.port=8501 --server.address=0.0.0.0 --server.headless=true
+    command: python -m scripts.reindex_memory
+    restart: "no"
+
+  # Interface nova (frontend/): arquivos estáticos e proxy de /api para a API, na mesma origem.
+  web:
+    image: meet-agent-web
+    build: ./frontend
+    environment:
+      API_UPSTREAM: api:8000
     ports:
-      - "0.0.0.0:8501:8501"   # rede local: http://<ip-desta-máquina>:8501
+      - "0.0.0.0:8080:80"   # rede local: http://<ip-desta-máquina>:8080
+    depends_on:
+      - api
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
 
   # Bot em container (S10-1, ADR-016). Opcional enquanto o worker do host existir: os dois
   # consomem a fila "bot". Login da conta do bot, uma vez:

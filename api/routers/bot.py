@@ -11,9 +11,10 @@ router = APIRouter()
 
 
 class BotStatusResponse(BaseModel):
-    status: Literal["unknown", "creating", "waiting_login", "ready", "not_configured", "error"] = Field(
+    status: Literal["unknown", "creating", "waiting_login", "ready", "not_configured", "error", "offline"] = Field(
         description="ready libera o envio do bot. creating: credenciando. waiting_login: alguém precisa "
-                    "concluir o login na tela do bot (vnc_url). unknown/not_configured/error: credenciar.")
+                    "concluir o login na tela do bot (vnc_url). unknown/not_configured/error: credenciar. "
+                    "offline: conta pronta, mas nenhum worker do bot rodando (message diz como subir).")
     message: str = ""
     vnc_url: str = Field("", description="Tela do navegador do bot (noVNC), para concluir o login")
 
